@@ -4,5 +4,10 @@
 #
 # For license information, please see the LICENSE file in the root directory.
 
-print("--- OpenProtein v0.1 ---")
+from preprocessing import process_raw_data
 
+print("------------------------")
+print("--- OpenProtein v0.1 ---")
+print("------------------------")
+
+process_raw_data()
