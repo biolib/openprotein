@@ -29,27 +29,33 @@ parser.add_argument('--live-plot', dest = 'live_plot', action = 'store_true',
 parser.add_argument('--evaluate-on-test', dest = 'evaluate_on_test', action = 'store_true',
                     default=False, help='Run model of test data.')
 parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
-                    default=1, help='Evaluate model on validation set every n minibatches.')
+                    default=10, help='Evaluate model on validation set every n minibatches.')
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
                     default=1000, help='Minimum number of minibatch iterations.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
-                    default=16, help='Size of each minibatch.')
+                    default=640, help='Size of each minibatch.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
                     default=0.001, help='Learning rate to use during training.')
 args = parser.parse_args()
 
 if not args.live_plot:
-    print("Live plot deactivated, see output folder for plot.")
+    write_out("Live plot deactivated, see output folder for plot.")
     matplotlib.use('Agg')
+
+use_gpu = False
+if torch.cuda.is_available():
+    write_out("CUDA is available, using GPU")
+    use_gpu = True
 
 # these imports must be after matplotlib backend is set
 import matplotlib.pyplot as plt
 from drawnow import drawnow
 
-process_raw_data()
+process_raw_data(force_pre_processing_overwrite=False)
 
-training_file = "data/preprocessed/testing.txt.hdf5"
-validation_file = "data/preprocessed/testing.txt.hdf5"
+training_file = "data/preprocessed/training_90.hdf5"
+validation_file = "data/preprocessed/validation.hdf5"
+testing_file = "data/preprocessed/testing.hdf5"
 
 def train_model(data_set_identifier, train_file, val_file, learning_rate, minibatch_size):
     set_experiment_id(data_set_identifier, learning_rate, minibatch_size)
@@ -58,7 +64,7 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
     validation_loader = contruct_dataloader_from_disk(val_file, minibatch_size)
     validation_dataset_size = validation_loader.dataset.__len__()
 
-    model = ExampleModel(9, "ONEHOT", minibatch_size) # 3 x 3 coordinates for each aa
+    model = ExampleModel(9, "ONEHOT", minibatch_size, use_gpu=use_gpu) # 3 x 3 coordinates for each aa
 
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 

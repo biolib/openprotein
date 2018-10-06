@@ -8,22 +8,27 @@ import torch.autograd as autograd
 import torch.nn as nn
 from util import *
 import torch.nn.utils.rnn as rnn_utils
+import time
 
 # seed random generator for reproducibility
 torch.manual_seed(1)
 
 class ExampleModel(nn.Module):
-    def __init__(self, num_labels, embedding, minibatch_size):
+    def __init__(self, num_labels, embedding, minibatch_size, use_gpu):
         super(ExampleModel, self).__init__()
 
         # initialize model variables
-        self.use_gpu = False
+        self.use_gpu = use_gpu
         self.embedding = embedding
         self.hidden_size = 10
         self.embedding_function = nn.Embedding(24, self.get_embedding_size())
         self.bi_lstm = nn.LSTM(self.get_embedding_size(), self.hidden_size, num_layers=1, bidirectional=True)
         self.hidden_to_labels = nn.Linear(self.hidden_size * 2, num_labels) # * 2 for bidirectional
         self.init_hidden(minibatch_size)
+        if self.use_gpu:
+            self.embedding_function = self.embedding_function.cuda()
+            self.bi_lstm = self.bi_lstm.cuda()
+            self.hidden_to_labels = self.hidden_to_labels.cuda()
 
     def get_embedding_size(self):
         return 21
@@ -31,42 +36,13 @@ class ExampleModel(nn.Module):
     def flatten_parameters(self):
         self.bi_lstm.flatten_parameters()
 
-    def encode_amino_acid(self, aa_id):
-        if self.embedding == "BLOSUM62":
-            # blosum encoding
-            if not globals().get('blosum_encoder'):
-                blosum_matrix = np.loadtxt("data/blosum62.csv", delimiter=",")
-                blosum_key = "A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,B,Z,X,*".split(",")
-                key_map = {}
-                for idx, value in enumerate(blosum_key):
-                    key_map[value] = list([int(v) for v in blosum_matrix[idx].astype('int')])
-                globals().__setitem__("blosum_encoder", key_map)
-            return globals().get('blosum_encoder')[aa_id]
-        elif self.embedding == "ONEHOT":
-            # one hot encoding
-            key_id = range(0,21)
-            arr = []
-            for k in key_id:
-                if k == aa_id:
-                    arr.append(1)
-                else:
-                    arr.append(0)
-            return arr
-        elif self.embedding == "PYTORCH":
-            return aa_id
-
     def embed(self, prot_aa_list):
-        embed_list = []
-        for aa_list in prot_aa_list:
-            t = list([self.encode_amino_acid(aa) for aa in aa_list])
-            if self.embedding == "PYTORCH":
-                t = torch.LongTensor(t)
-            else:
-                t= torch.FloatTensor(t)
-            if self.use_gpu:
-                t = t.cuda()
-            embed_list.append(t)
-        return embed_list
+        # one-hot encoding
+        prot_aa_list = prot_aa_list.long().unsqueeze(1)
+        embed_tensor = torch.zeros(prot_aa_list.size(0), 21, prot_aa_list.size(2)) # 21 classes
+        if self.use_gpu:
+            embed_tensor = embed_tensor.cuda()
+        return embed_tensor.scatter_(1, prot_aa_list.data, 1).transpose(1,2)
 
     def init_hidden(self, minibatch_size):
         # number of layers (* 2 since bidirectional), minibatch_size, hidden size
@@ -94,7 +70,13 @@ class ExampleModel(nn.Module):
         return emissions_padded
 
     def neg_log_likelihood(self, original_aa_string, actual_labels):
-        input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
+        if self.use_gpu:
+            original_aa_string = original_aa_string.cuda()
+            actual_labels = actual_labels.cuda()
+        start_compute_embed = time.time()
+        input_sequences = self.embed(original_aa_string)
+        end = time.time()
+        write_out("Embed time:", end - start_compute_embed)
         emissions, batch_sizes = self._get_network_emissions(input_sequences)
         emissions = emissions.transpose(0,1)
         emissions = emissions.transpose(1,2).double()
@@ -102,7 +84,9 @@ class ExampleModel(nn.Module):
         return loss
 
     def forward(self, original_aa_string):
-        input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
+        if self.use_gpu:
+            original_aa_string = original_aa_string.cuda()
+        input_sequences = self.embed(original_aa_string)
         emissions, batch_sizes = self._get_network_emissions(input_sequences)
         return emissions
 
