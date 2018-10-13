@@ -8,6 +8,7 @@ import torch
 import torch.utils.data
 import h5py
 from datetime import datetime
+import numpy as np
 
 def contruct_dataloader_from_disk(filename, minibatch_size):
     return torch.utils.data.DataLoader(H5PytorchDataset(filename), batch_size=minibatch_size, shuffle=True)
@@ -89,3 +90,57 @@ def write_result_summary(accuracy):
         output_file.write(output_string)
         output_file.flush()
     print(output_string, end="")
+
+
+def write_to_pdb(atomic_coords, aaSequence, identifier):
+    aa_name_dict = {"A": "ALA",
+                    "R": "ARG",
+                    "N": "ASN",
+                    "D": "ASP",
+                    "C": "CYS",
+                    "E": "GLU",
+                    "Q": "GLN",
+                    "G": "GLY",
+                    "H": "HIS",
+                    "I": "ILE",
+                    "L": "LEU",
+                    "K": "LYS",
+                    "M": "MET",
+                    "F": "PHE",
+                    "P": "PRO",
+                    "S": "SER",
+                    "T": "THR",
+                    "W": "TRP",
+                    "Y": "TYR",
+                    "V": "VAL",
+                    }
+
+    _aa_dict = {'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 8, 'K': 9, 'L': 10,
+                'M': 11, 'N': 12, 'P': 13, 'Q': 14, 'R': 15, 'S': 16, 'T': 17, 'V': 18, 'W': 19,
+                'Y': 20}
+    _aa_dict_inverse = {v: k for k, v in _aa_dict.items()}
+
+    atomic_coords = np.round(atomic_coords, 3)
+
+    atom_names = ['N', 'CA', 'C'] * (len(atomic_coords / 3))
+    out_file = open("protein_" + str(identifier) + ".pdb", 'w')
+
+    res_number = 0
+    for i, coord in enumerate(atomic_coords):
+        if i % 3 == 0:
+            res_number += 1
+        if int(aaSequence[res_number - 1]) == 0:
+            print("Reached end of protein, stopping")
+            break
+        amino_acid_name = aa_name_dict[_aa_dict_inverse[int(aaSequence[res_number - 1])]]
+        out_file.write('ATOM' +
+                       ' ' * 2 + ' ' * (5 - len(str(i + 1))) + ' ' +
+                       str(i + 1) + ' ' * (4 - len(atom_names[i])) +
+                       atom_names[i] + ' ' + amino_acid_name +
+                       ' ' + "A" + ' ' * (4 - len(str(res_number))) +
+                       str(res_number) + ' ' * 4 +
+                       ' ' * (8 - len(str(float(coord[0])))) + str(float(coord[0])) +
+                       ' ' * (8 - len(str(float(coord[1])))) + str(float(coord[1])) +
+                       ' ' * (8 - len(str(float(coord[2])))) + str(float(coord[2])) +
+                       '\n')
+    out_file.close()

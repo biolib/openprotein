@@ -15,7 +15,10 @@ import matplotlib
 import numpy as np
 import time
 from models import ExampleModel
-from util import contruct_dataloader_from_disk, set_experiment_id, write_out, evaluate_model, write_model_to_disk, draw_plot, write_result_summary
+from util import contruct_dataloader_from_disk, set_experiment_id, write_out, \
+    evaluate_model, write_model_to_disk, draw_plot, write_result_summary, write_to_pdb
+
+
 
 print("------------------------")
 print("--- OpenProtein v0.1 ---")
@@ -33,7 +36,7 @@ parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
                     default=1000, help='Minimum number of minibatch iterations.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
-                    default=640, help='Size of each minibatch.')
+                    default=64, help='Size of each minibatch.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
                     default=0.001, help='Learning rate to use during training.')
 args = parser.parse_args()
@@ -51,6 +54,18 @@ if torch.cuda.is_available():
 import matplotlib.pyplot as plt
 from drawnow import drawnow
 
+
+import __main__
+
+__main__.pymol_argv = ['pymol', '-qi']
+
+import pymol
+
+# Call the function below before using any PyMOL modules.
+pymol.finish_launching()
+from pymol import cmd
+cmd.fragment('ala')
+cmd.zoom()
 process_raw_data(force_pre_processing_overwrite=False)
 
 training_file = "data/preprocessed/training_90.hdf5"
@@ -107,6 +122,11 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                 train_loss = loss_tracker.mean()
                 loss_tracker = np.zeros(0)
                 validation_loss, data_total = evaluate_model(validation_loader, model)
+                prim = data_total[0][0]
+                pos = data_total[0][1].view(-1,3)
+                pos_predicted = data_total[0][2].view(-1,3)
+                write_to_pdb(pos, prim, "test")
+                cmd.load("protein_test.pdb")
                 if validation_loss < best_model_loss:
                     best_model_loss = validation_loss
                     best_model_minibatch_time = minibatches_proccesed
