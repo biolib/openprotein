@@ -109,7 +109,9 @@ def process_file(input_file, output_file):
         mask_padded = np.zeros(MAX_SEQUENCE_LENGTH)
 
         primary_padded[:sequence_length] = next_protein['primary']
-        tertiary_padded[:,:sequence_length] = np.array(next_protein['tertiary']).reshape((9,sequence_length))
+        t_transposed = np.ravel(np.array(next_protein['tertiary']).T)
+        t_reshaped = np.reshape(t_transposed, (sequence_length,9)).T
+        tertiary_padded[:,:sequence_length] = t_reshaped
         mask_padded[:sequence_length] = next_protein['mask']
 
         dset1[current_buffer_allocaton] = primary_padded

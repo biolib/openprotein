@@ -36,7 +36,7 @@ parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
                     default=1000, help='Minimum number of minibatch iterations.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
-                    default=64, help='Size of each minibatch.')
+                    default=1, help='Size of each minibatch.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
                     default=0.001, help='Learning rate to use during training.')
 args = parser.parse_args()
@@ -68,8 +68,8 @@ cmd.fragment('ala')
 cmd.zoom()
 process_raw_data(force_pre_processing_overwrite=False)
 
-training_file = "data/preprocessed/training_90.hdf5"
-validation_file = "data/preprocessed/validation.hdf5"
+training_file = "data/preprocessed/t1.hdf5"
+validation_file = "data/preprocessed/t1.hdf5"
 testing_file = "data/preprocessed/testing.hdf5"
 
 def train_model(data_set_identifier, train_file, val_file, learning_rate, minibatch_size):
@@ -123,8 +123,8 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                 loss_tracker = np.zeros(0)
                 validation_loss, data_total = evaluate_model(validation_loader, model)
                 prim = data_total[0][0]
-                pos = data_total[0][1].view(-1,3)
-                pos_predicted = data_total[0][2].view(-1,3)
+                pos = data_total[0][1].transpose(0,1).contiguous().view(-1,3)
+                pos_predicted = data_total[0][2].transpose(0,1).contiguous().view(-1,3)
                 write_to_pdb(pos, prim, "test")
                 cmd.load("protein_test.pdb")
                 if validation_loss < best_model_loss:
