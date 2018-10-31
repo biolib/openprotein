@@ -88,5 +88,5 @@ class ExampleModel(nn.Module):
             original_aa_string = original_aa_string.cuda()
         input_sequences = self.embed(original_aa_string)
         emissions, batch_sizes = self._get_network_emissions(input_sequences)
-        return emissions
+        return emissions.transpose(0,1).transpose(1,2).double()
 

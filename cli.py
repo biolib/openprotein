@@ -107,6 +107,7 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                 write_to_pdb(pos, prim, "test")
                 cmd.load("output/protein_test.pdb")
                 write_to_pdb(pos_predicted.detach(), prim, "test_pred")
+                cmd.load("output/protein_test_pred.pdb")
                 if validation_loss < best_model_loss:
                     best_model_loss = validation_loss
                     best_model_minibatch_time = minibatches_proccesed

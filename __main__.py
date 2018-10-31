@@ -3,7 +3,7 @@ from flask import Flask, request, jsonify
 import threading
 import matplotlib.pyplot as plt
 plt.ion()
-fig = plt.figure()
+
 from util import draw_plot
 from drawnow import drawnow
 
@@ -16,6 +16,7 @@ def update_graph():
     sample_num = content['sample_num']
     train_loss_values = content['train_loss_values']
     validation_loss_values = content['validation_loss_values']
+    fig = plt.figure()
     drawnow(draw_plot(fig, plt, validation_dataset_size, sample_num, train_loss_values, validation_loss_values))
     return jsonify({"result":"OK"})
 
