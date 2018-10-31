@@ -37,7 +37,7 @@ parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
                     default=1, help='Size of each minibatch.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
                     default=0.001, help='Learning rate to use during training.')
-args = parser.parse_args()
+args, unknown = parser.parse_known_args()
 
 if not args.live_plot:
     write_out("Live plot deactivated, see output folder for plot.")
@@ -50,21 +50,14 @@ if torch.cuda.is_available():
 
 # these imports must be after matplotlib backend is set
 import matplotlib.pyplot as plt
-from drawnow import drawnow
 
+pymol_argv = ['pymol', '-i']
 
-import __main__
+from pymol import cmd
+cmd.fragment('ala')
+cmd.zoom()
 
-#__main__.pymol_argv = ['pymol', '-qi']
-
-#import pymol
-
-# Call the function below before using any PyMOL modules.
-#pymol.finish_launching()
-#from pymol import cmd
-#cmd.fragment('ala')
-#cmd.zoom()
-process_raw_data(force_pre_processing_overwrite=True)
+process_raw_data(force_pre_processing_overwrite=False)
 
 training_file = "data/preprocessed/testing.txt.hdf5"
 validation_file = "data/preprocessed/testing.txt.hdf5"
@@ -124,6 +117,7 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                 pos = data_total[0][1].transpose(0,1).contiguous().view(-1,3)
                 pos_predicted = data_total[0][2].transpose(0,1).contiguous().view(-1,3)
                 write_to_pdb(pos, prim, "test")
+                cmd.load("output/protein_test.pdb")
                 write_to_pdb(pos_predicted.detach(), prim, "test_pred")
                 #cmd.load("protein_test.pdb")
                 if validation_loss < best_model_loss:
@@ -139,6 +133,7 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                 train_loss_values.append(train_loss)
                 validation_loss_values.append(validation_loss)
                 if args.live_plot:
+                    from drawnow import drawnow
                     drawnow(draw_plot(fig, plt, validation_dataset_size, sample_num, train_loss_values, validation_loss_values))
 
                 if minibatches_proccesed > args.minimum_updates and minibatches_proccesed > best_model_minibatch_time * 2:
