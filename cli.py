@@ -11,11 +11,14 @@ import h5py
 import torch.autograd as autograd
 import torch.optim as optim
 import argparse
-import matplotlib
 import numpy as np
 import time
+import requests
+pymol_argv = ['pymol', '-i']
+from pymol import cmd
 from models import ExampleModel
-from util import contruct_dataloader_from_disk, set_experiment_id, write_out, evaluate_model, write_model_to_disk, draw_plot, write_result_summary
+from util import contruct_dataloader_from_disk, set_experiment_id, write_out, \
+    evaluate_model, write_model_to_disk, draw_plot, write_result_summary, write_to_pdb
 
 print("------------------------")
 print("--- OpenProtein v0.1 ---")
@@ -33,28 +36,23 @@ parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
                     default=1000, help='Minimum number of minibatch iterations.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
-                    default=640, help='Size of each minibatch.')
+                    default=1, help='Size of each minibatch.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
                     default=0.001, help='Learning rate to use during training.')
-args = parser.parse_args()
+args, unknown = parser.parse_known_args()
 
 if not args.live_plot:
     write_out("Live plot deactivated, see output folder for plot.")
-    matplotlib.use('Agg')
 
 use_gpu = False
 if torch.cuda.is_available():
     write_out("CUDA is available, using GPU")
     use_gpu = True
 
-# these imports must be after matplotlib backend is set
-import matplotlib.pyplot as plt
-from drawnow import drawnow
-
 process_raw_data(force_pre_processing_overwrite=False)
 
-training_file = "data/preprocessed/training_90.hdf5"
-validation_file = "data/preprocessed/validation.hdf5"
+training_file = "data/preprocessed/testing.txt.hdf5"
+validation_file = "data/preprocessed/testing.txt.hdf5"
 testing_file = "data/preprocessed/testing.hdf5"
 
 def train_model(data_set_identifier, train_file, val_file, learning_rate, minibatch_size):
@@ -68,10 +66,6 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
 
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-    # plot settings
-    if args.live_plot:
-        plt.ion()
-    fig = plt.figure()
     sample_num = list()
     train_loss_values = list()
     validation_loss_values = list()
@@ -107,6 +101,12 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                 train_loss = loss_tracker.mean()
                 loss_tracker = np.zeros(0)
                 validation_loss, data_total = evaluate_model(validation_loader, model)
+                prim = data_total[0][0]
+                pos = data_total[0][1].transpose(0,1).contiguous().view(-1,3)
+                pos_predicted = data_total[0][2].transpose(0,1).contiguous().view(-1,3)
+                write_to_pdb(pos, prim, "test")
+                cmd.load("output/protein_test.pdb")
+                write_to_pdb(pos_predicted.detach(), prim, "test_pred")
                 if validation_loss < best_model_loss:
                     best_model_loss = validation_loss
                     best_model_minibatch_time = minibatches_proccesed
@@ -120,7 +120,14 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                 train_loss_values.append(train_loss)
                 validation_loss_values.append(validation_loss)
                 if args.live_plot:
-                    drawnow(draw_plot(fig, plt, validation_dataset_size, sample_num, train_loss_values, validation_loss_values))
+                    data = {}
+                    data["validation_dataset_size"] = validation_dataset_size
+                    data["sample_num"] = sample_num
+                    data["train_loss_values"] = train_loss_values
+                    data["validation_loss_values"] = validation_loss_values
+                    res = requests.post('http://localhost:5000/graph', json=data)
+                    if res.ok:
+                        print(res.json())
 
                 if minibatches_proccesed > args.minimum_updates and minibatches_proccesed > best_model_minibatch_time * 2:
                     stopping_condition_met = True
