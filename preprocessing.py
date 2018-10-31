@@ -9,6 +9,7 @@ import os.path
 import os
 import numpy as np
 import h5py
+from util import AA_ID_DICT
 
 MAX_SEQUENCE_LENGTH = 2000
 
@@ -36,9 +37,6 @@ def process_raw_data(force_pre_processing_overwrite=True):
 def read_protein_from_file(file_pointer):
 
         dict_ = {}
-        _aa_dict = {'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 8, 'K': 9, 'L': 10,
-                    'M': 11, 'N': 12, 'P': 13, 'Q': 14, 'R': 15, 'S': 16, 'T': 17, 'V': 18, 'W': 19,
-                    'Y': 20}
         _dssp_dict = {'L': 0, 'H': 1, 'B': 2, 'E': 3, 'G': 4, 'I': 5, 'T': 6, 'S': 7}
         _mask_dict = {'-': 0, '+': 1}
 
@@ -48,7 +46,7 @@ def read_protein_from_file(file_pointer):
                 id_ = file_pointer.readline()[:-1]
                 dict_.update({'id': id_})
             elif next_line == '[PRIMARY]\n':
-                primary = list([_aa_dict[aa] for aa in file_pointer.readline()[:-1]])
+                primary = list([AA_ID_DICT[aa] for aa in file_pointer.readline()[:-1]])
                 dict_.update({'primary': primary})
             elif next_line == '[EVOLUTIONARY]\n':
                 evolutionary = []

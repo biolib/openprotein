@@ -18,8 +18,6 @@ from models import ExampleModel
 from util import contruct_dataloader_from_disk, set_experiment_id, write_out, \
     evaluate_model, write_model_to_disk, draw_plot, write_result_summary, write_to_pdb
 
-
-
 print("------------------------")
 print("--- OpenProtein v0.1 ---")
 print("------------------------")
@@ -57,19 +55,19 @@ from drawnow import drawnow
 
 import __main__
 
-__main__.pymol_argv = ['pymol', '-qi']
+#__main__.pymol_argv = ['pymol', '-qi']
 
-import pymol
+#import pymol
 
 # Call the function below before using any PyMOL modules.
-pymol.finish_launching()
-from pymol import cmd
-cmd.fragment('ala')
-cmd.zoom()
-process_raw_data(force_pre_processing_overwrite=False)
+#pymol.finish_launching()
+#from pymol import cmd
+#cmd.fragment('ala')
+#cmd.zoom()
+process_raw_data(force_pre_processing_overwrite=True)
 
-training_file = "data/preprocessed/t1.hdf5"
-validation_file = "data/preprocessed/t1.hdf5"
+training_file = "data/preprocessed/testing.txt.hdf5"
+validation_file = "data/preprocessed/testing.txt.hdf5"
 testing_file = "data/preprocessed/testing.hdf5"
 
 def train_model(data_set_identifier, train_file, val_file, learning_rate, minibatch_size):
@@ -126,7 +124,8 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                 pos = data_total[0][1].transpose(0,1).contiguous().view(-1,3)
                 pos_predicted = data_total[0][2].transpose(0,1).contiguous().view(-1,3)
                 write_to_pdb(pos, prim, "test")
-                cmd.load("protein_test.pdb")
+                write_to_pdb(pos_predicted.detach(), prim, "test_pred")
+                #cmd.load("protein_test.pdb")
                 if validation_loss < best_model_loss:
                     best_model_loss = validation_loss
                     best_model_minibatch_time = minibatches_proccesed
