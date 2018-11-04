@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.7.3/Chart.bundle.js" integrity="sha256-o8aByMEvaNTcBsw94EfRLbBrJBI+c3mjna/j4LrfyJ8=" crossorigin="anonymous"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+    <div class="chart-container" style="position: relative; height:20vh; width:40vw">
+    <canvas id="myChart"></canvas>
+        <canvas id="myChart2"></canvas>
+</div>
+<script>
+window.randomScalingFactor = function() {
+		return Math.round((Math.random() - 0.5) * 200);
+	};
+window.chartColors = {
+	red: 'rgb(255, 99, 132)',
+	orange: 'rgb(255, 159, 64)',
+	yellow: 'rgb(255, 205, 86)',
+	green: 'rgb(75, 192, 192)',
+	blue: 'rgb(54, 162, 235)',
+	purple: 'rgb(153, 102, 255)',
+	grey: 'rgb(201, 203, 207)'
+};
+var ctx = document.getElementById("myChart").getContext('2d');
+var ctx2 = document.getElementById("myChart2").getContext('2d');
+
+var line_config =  {
+			type: 'line',
+			data: {
+				labels: [],
+				datasets: [{
+					label: 'Train Loss',
+					backgroundColor: window.chartColors.red,
+					borderColor: window.chartColors.red,
+					data: [],
+					fill: false,
+					yAxisID: 'y-axis-1'
+				}, {
+					label: 'Validation dRMSD avg',
+					fill: false,
+					backgroundColor: window.chartColors.blue,
+					borderColor: window.chartColors.blue,
+					data: [],
+					yAxisID: 'y-axis-2'
+				}, {
+					label: 'Validation RMSD avg',
+					fill: false,
+					backgroundColor: window.chartColors.green,
+					borderColor: window.chartColors.green,
+					data: [],
+					yAxisID: 'y-axis-3'
+				}]
+			},
+			options: {
+				responsive: true,
+				title: {
+					display: true,
+					text: 'Training Progress'
+				},
+				tooltips: {
+					mode: 'index',
+					intersect: false,
+				},
+				hover: {
+					mode: 'nearest',
+					intersect: true
+				},
+				scales: {
+					xAxes: [{
+						display: true,
+						scaleLabel: {
+							display: true,
+							labelString: 'Minibatch updates'
+						}
+					}],
+					yAxes: [{
+							type: 'linear', // only linear but allow scale type registration. This allows extensions to exist solely for log scale for instance
+							display: true,
+							position: 'left',
+							id: 'y-axis-1',
+							scaleLabel: {
+							    display: true,
+							    labelString: 'Loss1'
+						    }
+						}, {
+							type: 'linear', // only linear but allow scale type registration. This allows extensions to exist solely for log scale for instance
+							display: true,
+							position: 'right',
+							id: 'y-axis-2',
+							scaleLabel: {
+							    display: true,
+							    labelString: 'dRMSD'
+						    },
+
+							// grid line settings
+							gridLines: {
+								drawOnChartArea: false, // only want the grid lines for one axis to show up
+							},
+						}, {
+							type: 'linear', // only linear but allow scale type registration. This allows extensions to exist solely for log scale for instance
+							display: true,
+							position: 'right',
+							id: 'y-axis-3',
+							scaleLabel: {
+							    display: true,
+							    labelString: 'RMSD'
+						    },
+
+							// grid line settings
+							gridLines: {
+								drawOnChartArea: false, // only want the grid lines for one axis to show up
+							},
+						}]
+				}
+			}
+		};
+
+var myChart = new Chart(ctx, line_config);
+
+
+var scatter_config = {
+				data: {
+			datasets: [{
+				label: 'Actual',
+				borderColor: window.chartColors.red,
+				backgroundColor: window.chartColors.red,
+				data: []
+			},{
+				label: 'Predicted',
+				borderColor: window.chartColors.blue,
+				backgroundColor: window.chartColors.blue,
+				data: []
+			}]
+		},
+				options: {
+					title: {
+						display: true,
+						text: 'Ramachandran Plot'
+					},
+					scales: {
+                        xAxes: [{
+                            display: true,
+                            scaleLabel: {
+                                display: true,
+                                labelString: 'Phi'
+                            }
+                        }],
+                        yAxes: [{
+                                type: 'linear', // only linear but allow scale type registration. This allows extensions to exist solely for log scale for instance
+                                display: true,
+                                position: 'left',
+                                id: 'y-axis-1',
+                                scaleLabel: {
+                                    display: true,
+                                    labelString: 'Psi'
+                                }
+                            }]
+                    }
+				}
+			};
+var myChart2 = Chart.Scatter(ctx2, scatter_config);;
+
+var connection_made = false;
+
+
+function update_data() {
+    $.getJSON( "http://localhost:5000/graph", function( data ) {
+        connection_made = true;
+        if (data == null) {
+            console.log("Data is null, returning...");
+            return;
+        }
+        scatter_config.data.datasets[0].data = data["phi_actual"].map(function(h, i) {
+            return {
+                x: h,
+                y: data["psi_actual"][i],
+            };
+        });
+        scatter_config.data.datasets[1].data = data["phi_predicted"].map(function(h, i) {
+            return {
+                x: h,
+                y: data["psi_predicted"][i],
+            };
+        });
+
+        line_config.data.labels = data["sample_num"]
+        line_config.data.datasets[0].data = data["sample_num"].map(function(h, i) {
+            return {
+                x: h,
+                y: data["train_loss_values"][i],
+            };
+        });
+        line_config.data.datasets[1].data = data["sample_num"].map(function(h, i) {
+            return {
+                x: h,
+                y: data["drmsd_avg"][i],
+            };
+        });
+        line_config.data.datasets[2].data = data["sample_num"].map(function(h, i) {
+            return {
+                x: h,
+                y: data["rmsd_avg"][i],
+            };
+        });
+
+        myChart.update();
+        myChart2.update();
+    } );
+}
+
+var update_data_interval = window.setInterval(update_data, 1000);
+
+$.ajaxSetup({
+      "error":function() {
+      if (connection_made == true) {
+         clearInterval(update_data_interval)
+         console.log("Connection to server lost, NOT retrying")
+      }
+      }
+});
+
+</script>
+</body>
+</html>

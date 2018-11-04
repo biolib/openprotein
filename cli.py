@@ -14,11 +14,13 @@ import argparse
 import numpy as np
 import time
 import requests
+import math
 pymol_argv = ['pymol', '-i']
 from pymol import cmd
 from models import ExampleModel
 from util import contruct_dataloader_from_disk, set_experiment_id, write_out, \
-    evaluate_model, write_model_to_disk, draw_plot, write_result_summary, write_to_pdb
+    evaluate_model, write_model_to_disk, write_result_summary, write_to_pdb, calculate_dihedral_angels, \
+    get_structure_from_angles
 
 print("------------------------")
 print("--- OpenProtein v0.1 ---")
@@ -32,9 +34,9 @@ parser.add_argument('--live-plot', dest = 'live_plot', action = 'store_true',
 parser.add_argument('--evaluate-on-test', dest = 'evaluate_on_test', action = 'store_true',
                     default=False, help='Run model of test data.')
 parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
-                    default=10, help='Evaluate model on validation set every n minibatches.')
+                    default=5, help='Evaluate model on validation set every n minibatches.')
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
-                    default=1000, help='Minimum number of minibatch iterations.')
+                    default=5000, help='Minimum number of minibatch iterations.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
                     default=1, help='Size of each minibatch.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
@@ -51,9 +53,11 @@ if torch.cuda.is_available():
 
 process_raw_data(force_pre_processing_overwrite=False)
 
-training_file = "data/preprocessed/testing.txt.hdf5"
-validation_file = "data/preprocessed/testing.txt.hdf5"
+training_file = "data/preprocessed/single.txt.hdf5"
+validation_file = "data/preprocessed/single.txt.hdf5"
 testing_file = "data/preprocessed/testing.hdf5"
+
+cmd.rock()
 
 def train_model(data_set_identifier, train_file, val_file, learning_rate, minibatch_size):
     set_experiment_id(data_set_identifier, learning_rate, minibatch_size)
@@ -62,13 +66,16 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
     validation_loader = contruct_dataloader_from_disk(val_file, minibatch_size)
     validation_dataset_size = validation_loader.dataset.__len__()
 
-    model = ExampleModel(9, "ONEHOT", minibatch_size, use_gpu=use_gpu) # 3 x 3 coordinates for each aa
+    model = ExampleModel(21, minibatch_size, use_gpu=use_gpu) # embed size = 21
 
+    # TODO: is soft_to_angle.parameters() included here?
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     sample_num = list()
     train_loss_values = list()
     validation_loss_values = list()
+    rmsd_avg_values = list()
+    drmsd_avg_values = list()
 
     best_model_loss = 1.1
     best_model_minibatch_time = None
@@ -84,7 +91,7 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
             minibatches_proccesed += 1
             primary_sequence, tertiary_positions, mask = training_minibatch
             start_compute_loss = time.time()
-            loss = model.neg_log_likelihood(primary_sequence, tertiary_positions)
+            loss = model.compute_loss(primary_sequence, tertiary_positions)
             write_out("Train loss:", float(loss))
             start_compute_grad = time.time()
             loss.backward()
@@ -100,14 +107,16 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
 
                 train_loss = loss_tracker.mean()
                 loss_tracker = np.zeros(0)
-                validation_loss, data_total = evaluate_model(validation_loader, model)
+                validation_loss, data_total, rmsd_avg, drmsd_avg = evaluate_model(validation_loader, model)
                 prim = data_total[0][0]
-                pos = data_total[0][1].transpose(0,1).contiguous().view(-1,3)
-                pos_predicted = data_total[0][2].transpose(0,1).contiguous().view(-1,3)
-                write_to_pdb(pos, prim, "test")
+                pos = data_total[0][1].transpose(0,1)
+                (aa_list, phi_list, psi_list, omega_list) = calculate_dihedral_angels(prim, pos)
+                write_to_pdb(get_structure_from_angles(aa_list, phi_list[1:], psi_list[:-1], omega_list[:-1]), "test")
                 cmd.load("output/protein_test.pdb")
-                write_to_pdb(pos_predicted.detach(), prim, "test_pred")
+                write_to_pdb(data_total[0][3], "test_pred")
                 cmd.load("output/protein_test_pred.pdb")
+                cmd.forward()
+                cmd.orient()
                 if validation_loss < best_model_loss:
                     best_model_loss = validation_loss
                     best_model_minibatch_time = minibatches_proccesed
@@ -120,12 +129,20 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                 sample_num.append(minibatches_proccesed)
                 train_loss_values.append(train_loss)
                 validation_loss_values.append(validation_loss)
+                rmsd_avg_values.append(rmsd_avg)
+                drmsd_avg_values.append(drmsd_avg)
                 if args.live_plot:
                     data = {}
                     data["validation_dataset_size"] = validation_dataset_size
                     data["sample_num"] = sample_num
                     data["train_loss_values"] = train_loss_values
                     data["validation_loss_values"] = validation_loss_values
+                    data["phi_actual"] = list([math.degrees(float(v)) for v in phi_list[1:]])
+                    data["psi_actual"] = list([math.degrees(float(v)) for v in psi_list[:-1]])
+                    data["phi_predicted"] = list([math.degrees(float(v)) for v in data_total[0][2].detach().transpose(0, 1)[0][1:]])
+                    data["psi_predicted"] = list([math.degrees(float(v)) for v in data_total[0][2].detach().transpose(0, 1)[1][:-1]])
+                    data["drmsd_avg"] = drmsd_avg_values
+                    data["rmsd_avg"] = rmsd_avg_values
                     res = requests.post('http://localhost:5000/graph', json=data)
                     if res.ok:
                         print(res.json())

@@ -80,7 +80,7 @@ def process_file(input_file, output_file):
     current_buffer_allocaton = 0
     dset1 = f.create_dataset('primary',(current_buffer_size,MAX_SEQUENCE_LENGTH),maxshape=(None,MAX_SEQUENCE_LENGTH),dtype='int32')
     dset2 = f.create_dataset('tertiary',(current_buffer_size,9,MAX_SEQUENCE_LENGTH),maxshape=(None,9, MAX_SEQUENCE_LENGTH),dtype='float')
-    dset3 = f.create_dataset('mask',(current_buffer_size,MAX_SEQUENCE_LENGTH),maxshape=(None,MAX_SEQUENCE_LENGTH),dtype='float')
+    dset3 = f.create_dataset('mask',(current_buffer_size,MAX_SEQUENCE_LENGTH),maxshape=(None,MAX_SEQUENCE_LENGTH),dtype='uint8')
 
     input_file_pointer = open("data/raw/" + input_file, "r")
 
