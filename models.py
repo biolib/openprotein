@@ -69,9 +69,9 @@ class ExampleModel(openprotein.BaseModel):
         backbone_atoms_list = structures_to_backbone_atoms_list(structures)
         emissions_actual, batch_sizes_actual = \
             calculate_dihedral_angles_over_minibatch(original_aa_string, actual_coords_list)
-        drmsd_tot = calc_tot_drmsd_over_minibatch(backbone_atoms_list, actual_coords_list)
+        drmsd_avg = calc_avg_drmsd_over_minibatch(backbone_atoms_list, actual_coords_list)
         angular_loss = calc_angular_difference(emissions, emissions_actual)
-        return angular_loss
+        return angular_loss + drmsd_avg
 
 class soft_to_angle(nn.Module):
     def __init__(self, mixture_size):

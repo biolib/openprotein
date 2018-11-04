@@ -32,8 +32,13 @@ class H5PytorchDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         mask = torch.Tensor(self.h5pyfile['mask'][index,:]).type(dtype=torch.uint8)
-        return torch.masked_select(torch.Tensor(self.h5pyfile['primary'][index,:]).type(dtype=torch.long), mask) , \
-               torch.masked_select(torch.Tensor(self.h5pyfile['tertiary'][index]), mask).view(9, -1).transpose(0, 1), \
+        prim = torch.masked_select(torch.Tensor(self.h5pyfile['primary'][index,:]).type(dtype=torch.long), mask)
+        pos = torch.masked_select(torch.Tensor(self.h5pyfile['tertiary'][index]), mask).view(9, -1).transpose(0, 1)
+        (aa_list, phi_list, psi_list, omega_list) = calculate_dihedral_angels(prim, pos)
+        structure = get_structure_from_angles(aa_list, phi_list[1:], psi_list[:-1], omega_list[:-1])
+        tertiary = structure_to_backbone_atoms(structure).view(-1,9)
+        return  prim, \
+                tertiary, \
                mask
 
     def __len__(self):
@@ -152,7 +157,8 @@ def protein_id_to_str(protein_id_list):
 
 def calculate_dihedral_angels(original_aa_sequence, atomic_coords):
     aa_list = protein_id_to_str(original_aa_sequence)
-    atomic_coords = list([Vector(v) for v in atomic_coords.transpose(0,1).contiguous().view(-1,3).numpy()])
+    assert int(atomic_coords.shape[1]) == 9
+    atomic_coords = list([Vector(v) for v in atomic_coords.contiguous().view(-1,3).numpy()])
     phi_list = [0]
     psi_list = []
     omega_list = []
@@ -241,20 +247,33 @@ def calc_rmsd(chain_a, chain_b):
     return RMSD
 
 def calc_angular_difference(a1, a2):
-    a1 = a1.view(-1, 1)
-    a2 = a2.view(-1, 1)
-    return torch.sqrt(torch.mean(torch.min(torch.abs(a2 - a1), 2 * math.pi - torch.abs(a2 - a1)) ** 2))
+    a1 = a1.transpose(0,1).contiguous()
+    a2 = a2.transpose(0,1).contiguous()
+    sum = 0
+    for idx, _ in enumerate(a1):
+        assert a1[idx].shape[1] == 3
+        assert a2[idx].shape[1] == 3
+        a1_element = a1[idx].view(-1, 1)
+        a2_element = a2[idx].view(-1, 1)
+        sum += torch.sqrt(torch.mean(
+            torch.min(torch.abs(a2_element - a1_element),
+                      2 * math.pi - torch.abs(a2_element - a1_element)
+                      ) ** 2))
+    return sum / a1.shape[0]
 
 def structures_to_backbone_atoms_list(structures):
     backbone_atoms_list = []
     for structure in structures:
-        predicted_coords = []
-        for res in structure.get_residues():
-            predicted_coords.append(torch.Tensor(res["N"].get_coord()))
-            predicted_coords.append(torch.Tensor(res["CA"].get_coord()))
-            predicted_coords.append(torch.Tensor(res["C"].get_coord()))
-        backbone_atoms_list.append(torch.stack(predicted_coords))
+        backbone_atoms_list.append(structure_to_backbone_atoms(structure))
     return backbone_atoms_list
+
+def structure_to_backbone_atoms(structure):
+    predicted_coords = []
+    for res in structure.get_residues():
+        predicted_coords.append(torch.Tensor(res["N"].get_coord()))
+        predicted_coords.append(torch.Tensor(res["CA"].get_coord()))
+        predicted_coords.append(torch.Tensor(res["C"].get_coord()))
+    return torch.stack(predicted_coords)
 
 def get_structures_from_prediction(original_aa_string, emissions, batch_sizes):
     predicted_pos_list = list(
@@ -268,9 +287,9 @@ def get_structures_from_prediction(original_aa_string, emissions, batch_sizes):
         structures.append(structure)
     return structures
 
-def calc_tot_drmsd_over_minibatch(backbone_atoms_list, actual_coords_list):
-    drmsd_tot = 0
+def calc_avg_drmsd_over_minibatch(backbone_atoms_list, actual_coords_list):
+    drmsd_avg = 0
     for idx, backbone_atoms in enumerate(backbone_atoms_list):
         actual_coords = actual_coords_list[idx].transpose(0, 1).contiguous().view(-1, 3)
-        drmsd_tot += calc_drmsd(backbone_atoms, actual_coords)
-    return drmsd_tot / len(backbone_atoms_list)
+        drmsd_avg += calc_drmsd(backbone_atoms, actual_coords) / int(actual_coords.shape[0])
+    return drmsd_avg / len(backbone_atoms_list)

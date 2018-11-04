@@ -40,7 +40,7 @@ parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
                     default=1, help='Size of each minibatch.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
-                    default=0.001, help='Learning rate to use during training.')
+                    default=0.01, help='Learning rate to use during training.')
 args, unknown = parser.parse_known_args()
 
 if not args.live_plot:
@@ -109,7 +109,7 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                 loss_tracker = np.zeros(0)
                 validation_loss, data_total, rmsd_avg, drmsd_avg = evaluate_model(validation_loader, model)
                 prim = data_total[0][0]
-                pos = data_total[0][1].transpose(0,1)
+                pos = data_total[0][1]
                 (aa_list, phi_list, psi_list, omega_list) = calculate_dihedral_angels(prim, pos)
                 write_to_pdb(get_structure_from_angles(aa_list, phi_list[1:], psi_list[:-1], omega_list[:-1]), "test")
                 cmd.load("output/protein_test.pdb")
