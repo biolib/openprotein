@@ -28,6 +28,7 @@ class BaseModel(nn.Module):
         prot_aa_list = data.unsqueeze(1)
         embed_tensor = torch.zeros(prot_aa_list.size(0), 21, prot_aa_list.size(2)) # 21 classes
         if self.use_gpu:
+            prot_aa_list = prot_aa_list.cuda()
             embed_tensor = embed_tensor.cuda()
         input_sequences = embed_tensor.scatter_(1, prot_aa_list.data, 1).transpose(1,2)
         end = time.time()
@@ -36,6 +37,4 @@ class BaseModel(nn.Module):
         return packed_input_sequences
 
     def forward(self, original_aa_string):
-        if self.use_gpu:
-            original_aa_string = original_aa_string.cuda()
         return self._get_network_emissions(original_aa_string)

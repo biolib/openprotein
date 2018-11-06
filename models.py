@@ -33,6 +33,7 @@ class ExampleModel(openprotein.BaseModel):
         self.bn = nn.BatchNorm1d(self.mixture_size)
         if self.use_gpu:
             self.bi_lstm = self.bi_lstm.cuda()
+            self.bn = self.bn.cuda()
             self.hidden_to_labels = self.hidden_to_labels.cuda()
             self.softmax_to_angle = self.softmax_to_angle.cuda()
 
@@ -62,14 +63,14 @@ class ExampleModel(openprotein.BaseModel):
         return output, structures, emissions_padded[1]
 
     def compute_loss(self, original_aa_string, actual_coords_list):
-        if self.use_gpu:
-            original_aa_string = original_aa_string.cuda()
-            actual_coords_list = actual_coords_list.cuda()
         emissions, structures, batch_sizes = self._get_network_emissions(original_aa_string)
         backbone_atoms_list = structures_to_backbone_atoms_list(structures)
         emissions_actual, batch_sizes_actual = \
             calculate_dihedral_angles_over_minibatch(original_aa_string, actual_coords_list)
         drmsd_avg = calc_avg_drmsd_over_minibatch(backbone_atoms_list, actual_coords_list)
+        if self.use_gpu:
+            emissions_actual = emissions_actual.cuda()
+            drmsd_avg = drmsd_avg.cuda()
         angular_loss = calc_angular_difference(emissions, emissions_actual)
         return angular_loss + drmsd_avg
 
