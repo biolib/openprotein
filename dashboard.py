@@ -26,7 +26,7 @@ def get_graph():
 @app.route('/',methods=['GET'])
 @cross_origin()
 def index():
-    return open("stats.html","r").read()
+    return open("web/index.html","r").read()
 
 class graphWebServer (threading.Thread):
    def __init__(self):
