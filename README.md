@@ -3,9 +3,9 @@
 A PyTorch framework for the ProteinNet data set.
 
 ## Getting started
-To run this project, simply git clone the repository and type `python cli.py` in the terminal:
+To run this project, simply git clone the repository and type `python __main__.py` in the terminal:
 ```
-$ python cli.py
+$ python __main__.py
 ------------------------
 --- OpenProtein v0.1 ---
 ------------------------
