@@ -56,8 +56,8 @@ start_dashboard_server()
 
 process_raw_data(force_pre_processing_overwrite=False)
 
-training_file = "data/preprocessed/single.txt.hdf5"
-validation_file = "data/preprocessed/single.txt.hdf5"
+training_file = "data/preprocessed/sample.txt.hdf5"
+validation_file = "data/preprocessed/sample.txt.hdf5"
 testing_file = "data/preprocessed/testing.hdf5"
 
 def train_model(data_set_identifier, train_file, val_file, learning_rate, minibatch_size):
