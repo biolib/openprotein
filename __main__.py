@@ -29,8 +29,8 @@ print("------------------------")
 parser = argparse.ArgumentParser(description = "OpenProtein version 0.1")
 parser.add_argument('--silent', dest='silent', action='store_true',
                     help='Dont print verbose debug statements.')
-parser.add_argument('--live-plot', dest = 'live_plot', action = 'store_true',
-                    default=False, help='Draw loss graph while training goes on.')
+parser.add_argument('--hide-ui', dest = 'hide_ui', action = 'store_true',
+                    default=False, help='Hide loss graph and visualization UI while training goes on.')
 parser.add_argument('--evaluate-on-test', dest = 'evaluate_on_test', action = 'store_true',
                     default=False, help='Run model of test data.')
 parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
@@ -43,7 +43,7 @@ parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
                     default=0.01, help='Learning rate to use during training.')
 args, unknown = parser.parse_known_args()
 
-if not args.live_plot:
+if args.hide_ui:
     write_out("Live plot deactivated, see output folder for plot.")
 
 use_gpu = False
@@ -128,7 +128,7 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                 validation_loss_values.append(validation_loss)
                 rmsd_avg_values.append(rmsd_avg)
                 drmsd_avg_values.append(drmsd_avg)
-                if args.live_plot:
+                if not args.hide_ui:
                     data = {}
                     data["pdb_data_pred"] = open("output/protein_test_pred.pdb","r").read()
                     data["pdb_data_true"] = open("output/protein_test.pdb","r").read()
