@@ -49,7 +49,7 @@ class App extends React.Component<IAppProb, IAppProb> {
       return (
       <div className="App">
           <div style={{display: "grid" , height: "100vh",}}>
-              <div style={headerStyle}> <h1 className="App-title">Welcome to OpenProtein</h1></div>
+              <div style={headerStyle}> <h1 className="App-title">OpenProtein</h1></div>
               <div style={mainPanelStyle}><Visualizer pdbData={this.state.pdbData} /></div>
               <div style={leftPanelStyle}><Metrics setPdbData={this.setPdbData} /></div>
           </div>

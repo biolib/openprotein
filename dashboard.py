@@ -35,6 +35,15 @@ class graphWebServer (threading.Thread):
        app.run(debug=False, host='0.0.0.0')
 
 
+class frontendWebServer (threading.Thread):
+   def __init__(self):
+      threading.Thread.__init__(self)
+   def run(self):
+       from subprocess import call
+       call(["/bin/bash", "start_web_app.sh"])
+
 def start_dashboard_server():
     flask_thread = graphWebServer()
     flask_thread.start()
+    front_end_thread = frontendWebServer()
+    front_end_thread.start()

@@ -15,14 +15,7 @@ import numpy as np
 import time
 import requests
 import math
-import webbrowser
 from dashboard import start_dashboard_server
-
-# start web server
-start_dashboard_server()
-
-# open the performance dashboard in a browser
-webbrowser.open("http://localhost:5000")
 
 from models import ExampleModel
 from util import contruct_dataloader_from_disk, set_experiment_id, write_out, \
@@ -57,6 +50,9 @@ use_gpu = False
 if torch.cuda.is_available():
     write_out("CUDA is available, using GPU")
     use_gpu = True
+
+# start web server
+start_dashboard_server()
 
 process_raw_data(force_pre_processing_overwrite=False)
 
