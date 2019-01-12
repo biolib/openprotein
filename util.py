@@ -36,7 +36,7 @@ class H5PytorchDataset(torch.utils.data.Dataset):
         pos = torch.masked_select(torch.Tensor(self.h5pyfile['tertiary'][index]), mask).view(9, -1).transpose(0, 1)
         (aa_list, phi_list, psi_list, omega_list) = calculate_dihedral_angels(prim, pos)
         structure = get_structure_from_angles(aa_list, phi_list[1:], psi_list[:-1], omega_list[:-1])
-        tertiary = structure_to_backbone_atoms(structure).view(-1,9)
+        tertiary = structure_to_backbone_atoms(structure)
         return  prim, \
                 tertiary, \
                mask
@@ -86,8 +86,8 @@ def evaluate_model(data_loader, model):
         data_total.extend(minibatch_data)
         for primary_sequence, tertiary_positions,predicted_pos, structure, predicted_backbone_atoms in minibatch_data:
             actual_coords = tertiary_positions.transpose(0,1).contiguous().view(-1,3)
-            rmsd = calc_rmsd(predicted_backbone_atoms, actual_coords)
-            drmsd = calc_drmsd(predicted_backbone_atoms, actual_coords)
+            rmsd = calc_rmsd(predicted_backbone_atoms.transpose(0,1).contiguous().view(-1,3), actual_coords)
+            drmsd = calc_drmsd(predicted_backbone_atoms.transpose(0,1).contiguous().view(-1,3), actual_coords)
             RMSD_list.append(rmsd)
             dRMSD_list.append(drmsd)
             error = 1
@@ -273,7 +273,7 @@ def structure_to_backbone_atoms(structure):
         predicted_coords.append(torch.Tensor(res["N"].get_coord()))
         predicted_coords.append(torch.Tensor(res["CA"].get_coord()))
         predicted_coords.append(torch.Tensor(res["C"].get_coord()))
-    return torch.stack(predicted_coords)
+    return torch.stack(predicted_coords).view(-1,9)
 
 def get_structures_from_prediction(original_aa_string, emissions, batch_sizes):
     predicted_pos_list = list(
@@ -287,9 +287,21 @@ def get_structures_from_prediction(original_aa_string, emissions, batch_sizes):
         structures.append(structure)
     return structures
 
+
 def calc_avg_drmsd_over_minibatch(backbone_atoms_list, actual_coords_list):
     drmsd_avg = 0
     for idx, backbone_atoms in enumerate(backbone_atoms_list):
         actual_coords = actual_coords_list[idx].transpose(0, 1).contiguous().view(-1, 3)
-        drmsd_avg += calc_drmsd(backbone_atoms, actual_coords) / int(actual_coords.shape[0])
+        drmsd_avg += calc_drmsd(backbone_atoms.transpose(0, 1).contiguous().view(-1, 3), actual_coords) / int(actual_coords.shape[0])
     return drmsd_avg / len(backbone_atoms_list)
+
+
+def intial_pos_from_aa_string(batch_aa_string):
+    structures = []
+    for aa_string in batch_aa_string:
+        structure = get_structure_from_angles(protein_id_to_str(aa_string),
+                                              np.repeat([-120], len(aa_string)-1),
+                                              np.repeat([140], len(aa_string)-1),
+                                              np.repeat([-370], len(aa_string)-1))
+        structures.append(structure)
+    return structures
