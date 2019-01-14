@@ -34,7 +34,8 @@ class H5PytorchDataset(torch.utils.data.Dataset):
         mask = torch.Tensor(self.h5pyfile['mask'][index,:]).type(dtype=torch.uint8)
         prim = torch.masked_select(torch.Tensor(self.h5pyfile['primary'][index,:]).type(dtype=torch.long), mask)
         pos = torch.masked_select(torch.Tensor(self.h5pyfile['tertiary'][index]), mask).view(9, -1).transpose(0, 1)
-        (aa_list, phi_list, psi_list, omega_list) = calculate_dihedral_angels(prim, pos)
+        (phi_list, psi_list, omega_list) = calculate_dihedral_angels(pos)
+        aa_list = protein_id_to_str(prim)
         structure = get_structure_from_angles(aa_list, phi_list[1:], psi_list[:-1], omega_list[:-1])
         tertiary = structure_to_backbone_atoms(structure)
         return  prim, \
@@ -141,8 +142,8 @@ def write_result_summary(accuracy):
 def calculate_dihedral_angles_over_minibatch(original_aa_sequence, atomic_coords):
     angles = []
     for idx, aa_sequence in enumerate(original_aa_sequence):
-        res = calculate_dihedral_angels(aa_sequence, atomic_coords[idx])
-        actual_angles_t = torch.stack((torch.Tensor(res[1]), torch.Tensor(res[2]), torch.Tensor(res[3]))).transpose(0,1)
+        res = calculate_dihedral_angels(atomic_coords[idx])
+        actual_angles_t = torch.stack((res[0],res[1],res[2])).transpose(0,1)
         angles.append(actual_angles_t)
     return torch.nn.utils.rnn.pad_packed_sequence(
             torch.nn.utils.rnn.pack_sequence(angles))
@@ -155,36 +156,61 @@ def protein_id_to_str(protein_id_list):
         aa_list.append(aa_symbol)
     return aa_list
 
-def calculate_dihedral_angels(original_aa_sequence, atomic_coords):
-    aa_list = protein_id_to_str(original_aa_sequence)
+def calculate_dihedral_angels(atomic_coords):
+
     assert int(atomic_coords.shape[1]) == 9
-    atomic_coords = list([Vector(v) for v in atomic_coords.contiguous().view(-1,3).numpy()])
-    phi_list = [0]
+    atomic_coords = list([v for v in atomic_coords.contiguous().view(-1,3)])
+    phi_list = [torch.tensor(0.0)]
     psi_list = []
     omega_list = []
     for i, coord in enumerate(atomic_coords):
-        if int(original_aa_sequence[int(i/3)]) == 0:
-            print("ERROR: Reached end of protein, stopping")
-            break
+        #if int(original_aa_sequence[int(i/3)]) == 0:
+        #    print("ERROR: Reached end of protein, stopping")
+        #    break
 
         if i % 3 == 0:
             if i != 0:
-                phi_list.append(Bio.PDB.calc_dihedral(atomic_coords[i - 1],
+                phi_list.append(dihedral_pytorch(atomic_coords[i - 1],
                                                                    atomic_coords[i],
                                                                    atomic_coords[i + 1],
                                                                    atomic_coords[i + 2]))
             if i+3 < len(atomic_coords):
-                psi_list.append(Bio.PDB.calc_dihedral(atomic_coords[i],
+                psi_list.append(dihedral_pytorch(atomic_coords[i],
                                                                    atomic_coords[i + 1],
                                                                    atomic_coords[i + 2],
                                                                    atomic_coords[i + 3]))
-                omega_list.append(Bio.PDB.calc_dihedral(atomic_coords[i + 1],
+                omega_list.append(dihedral_pytorch(atomic_coords[i + 1],
                                                                      atomic_coords[i + 2],
                                                                      atomic_coords[i + 3],
                                                                      atomic_coords[i + 4]))
-    psi_list.append(0)
-    omega_list.append(0)
-    return (aa_list, phi_list, psi_list, omega_list)
+    psi_list.append(torch.tensor(0.0))
+    omega_list.append(torch.tensor(0.0))
+    return (torch.stack(phi_list), torch.stack(psi_list), torch.stack(omega_list))
+
+def dihedral_pytorch(v1, v2, v3, v4):
+    ab = v1 - v2
+    cb = v3 - v2
+    db = v4 - v3
+    u = torch.cross(ab, cb)
+    v = torch.cross(db, cb)
+    w = torch.cross(u, v)
+    angle = calc_angle(u,v)
+    # Determine sign of angle
+    try:
+        if calc_angle(cb,w) > 0.001:
+            angle = -angle
+    except ZeroDivisionError:
+        # dihedral=pi
+        pass
+    return angle
+
+def calc_angle(a, b):
+    n1 = a.norm()
+    n2 = b.norm()
+    c = (torch.dot(a, b)) / (n1 * n2)
+    c = torch.min(c, torch.tensor(1.0))
+    c = torch.max( torch.tensor(-1.0), c)
+    return torch.acos(c)
 
 def get_structure_from_angles(aa_list, phi_list, psi_list, omega_list):
     assert len(aa_list) == len(phi_list)+1 == len(psi_list)+1 == len(omega_list)+1
