@@ -104,3 +104,111 @@ class soft_to_angle(nn.Module):
 
         return torch.cat((phi, psi, omega), 2)
 
+
+class RrnModel(openprotein.BaseModel):
+    def __init__(self, embedding_size, minibatch_size, use_gpu):
+        super(RrnModel, self).__init__(use_gpu, embedding_size)
+
+        self.hidden_size = 50
+        self.msg_output_size = 50
+        self.num_lstm_layers = 2
+        self.mixture_size = 500
+
+        self.bi_lstm = nn.LSTM(self.get_embedding_size(), self.hidden_size,
+                   num_layers=self.num_lstm_layers, bidirectional=True, bias=True)
+        self.hidden_to_labels = nn.Linear(self.hidden_size * 2, self.mixture_size, bias=True)  # * 2 for bidirectional
+        self.softmax_to_angle = soft_to_angle(self.mixture_size)
+
+        self.output_size = 9 # 3 dimensions * 3 coordinates for each aa
+        self.f_to_hid = nn.Linear((embedding_size*2 + 9), self.hidden_size, bias=True)
+        self.hid_to_pos = nn.Linear(self.hidden_size, self.msg_output_size, bias=True)
+
+        self.g = nn.Linear(embedding_size + 9 + self.msg_output_size, 9, bias=True) # (last state + orginal state)
+
+        self.soft = nn.LogSoftmax(2)
+
+
+
+    def msg_fn(self, aa_features):
+        # aa_features: msg_count * 2 * feature_count
+        # aa_features_transformed = aa_features.view(-1, 2 * aa_features.size(2)) # msg_count * (2*feature_count)
+        aa_features_transformed = torch.cat(
+            (
+                aa_features[:,0,0:21],
+                aa_features[:,1,0:21],
+                1 / (aa_features[:,0,21:30] - aa_features[:,1,21:30])
+            ), dim=1)
+        x = self.hid_to_pos(self.f_to_hid(aa_features_transformed))
+        return x # msg_count * outputsize
+
+
+    def _get_network_emissions(self, original_aa_string):
+        start = time.time()
+        initial_aa_pos = intial_pos_from_aa_string(original_aa_string)
+
+        packed_input_sequences = self.embed(original_aa_string)
+        backbone_atoms = torch.stack(structures_to_backbone_atoms_list(initial_aa_pos))
+
+        end = time.time()
+        write_out("Pass message time:", end - start)
+
+
+        embedding_padded, batch_sizes = torch.nn.utils.rnn.pad_packed_sequence(
+            torch.nn.utils.rnn.PackedSequence(packed_input_sequences))
+
+
+        for i in range(2):
+            combined_features = torch.cat((embedding_padded.transpose(0,1),backbone_atoms),dim=2)
+            res = []
+            for idx, aa_features in enumerate(combined_features):
+                msg = pass_messages(aa_features, self.msg_fn) # aa_count * output size
+                data = torch.cat((aa_features, msg), dim=1)
+                update = self.g(data)
+                res.append(backbone_atoms[idx] + update)
+            backbone_atoms = torch.stack(res)
+
+        output, batch_sizes = calculate_dihedral_angles_over_minibatch(original_aa_string,list(backbone_atoms))
+
+
+        # output = self.softmax_to_angle(p)  # max size, minibatch size, 3 (angels)
+        #structures = get_structures_from_prediction(original_aa_string, output, batch_sizes)
+        return output, res, batch_sizes
+
+    def compute_loss(self, original_aa_string, actual_coords_list):
+
+        emissions, backbone_atoms_list, batch_sizes = self._get_network_emissions(original_aa_string)
+        start = time.time()
+        emissions_actual, batch_sizes_actual = \
+            calculate_dihedral_angles_over_minibatch(original_aa_string, actual_coords_list)
+        end = time.time()
+        write_out("Calculate actual angles:", end - start)
+
+        drmsd_avg = calc_avg_drmsd_over_minibatch(backbone_atoms_list, actual_coords_list)
+
+        if self.use_gpu:
+            emissions_actual = emissions_actual.cuda()
+
+        angular_loss = calc_angular_difference(emissions, emissions_actual)
+
+        return drmsd_avg
+
+
+def pass_messages(aa_features, message_transformation):
+    # aa_features (#aa, #features) - each row represents the amino acid type (embedding) and the positions of the backbone atoms
+    # message_transformation: (-1 * 2 * feature_size) -> (-1 * output message size)
+    feature_size = aa_features.size(1)
+    aa_count = aa_features.size(0)
+    eye = torch.eye(aa_count,dtype=torch.uint8).view(-1).expand(2,feature_size,-1).transpose(1,2).transpose(0,1)
+    eye_inverted = torch.ones(eye.size(),dtype=torch.uint8) - eye
+    features_repeated = aa_features.repeat((aa_count,1)).view((aa_count,aa_count,feature_size))
+    aa_messages = torch.stack((features_repeated.transpose(0,1), features_repeated)).transpose(0,1).transpose(1,2).view(-1,2,feature_size)
+    aa_msg_pairs = torch.masked_select(aa_messages,eye_inverted).view(-1,2,feature_size) # (aa_count^2 - aa_count) x 2 x aa_features     (all pairs except for reflexive connections)
+    transformed = message_transformation(aa_msg_pairs).view(aa_count, aa_count - 1, -1)
+    transformed_sum = transformed.sum(dim=1) # aa_count x output message size
+    return transformed_sum
+
+def test_pass_message():
+    data = torch.tensor([[1.0,2.2,1.1,2.2],[3.2,4.2,3.2,4.2],[5.2,6.2,5.2,6.2]])
+    print(pass_messages(data,lambda x : x.view(-1,8)))
+
+test_pass_message()
