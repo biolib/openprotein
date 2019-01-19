@@ -17,7 +17,7 @@ import requests
 import math
 from dashboard import start_dashboard_server
 
-from models import ExampleModel, RrnModel
+from models import *
 from util import contruct_dataloader_from_disk, set_experiment_id, write_out, \
     evaluate_model, write_model_to_disk, write_result_summary, write_to_pdb, calculate_dihedral_angels, \
     get_structure_from_angles, protein_id_to_str
