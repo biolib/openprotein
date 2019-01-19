@@ -17,10 +17,10 @@ import requests
 import math
 from dashboard import start_dashboard_server
 
-from models import ExampleModel
+from models import *
 from util import contruct_dataloader_from_disk, set_experiment_id, write_out, \
     evaluate_model, write_model_to_disk, write_result_summary, write_to_pdb, calculate_dihedral_angels, \
-    get_structure_from_angles
+    get_structure_from_angles, protein_id_to_str
 
 print("------------------------")
 print("--- OpenProtein v0.1 ---")
@@ -111,7 +111,8 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                 validation_loss, data_total, rmsd_avg, drmsd_avg = evaluate_model(validation_loader, model)
                 prim = data_total[0][0]
                 pos = data_total[0][1]
-                (aa_list, phi_list, psi_list, omega_list) = calculate_dihedral_angels(prim, pos)
+                (phi_list, psi_list, omega_list) = calculate_dihedral_angels(pos)
+                aa_list = protein_id_to_str(prim)
                 write_to_pdb(get_structure_from_angles(aa_list, phi_list[1:], psi_list[:-1], omega_list[:-1]), "test")
                 write_to_pdb(data_total[0][3], "test_pred")
                 if validation_loss < best_model_loss:

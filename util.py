@@ -34,9 +34,10 @@ class H5PytorchDataset(torch.utils.data.Dataset):
         mask = torch.Tensor(self.h5pyfile['mask'][index,:]).type(dtype=torch.uint8)
         prim = torch.masked_select(torch.Tensor(self.h5pyfile['primary'][index,:]).type(dtype=torch.long), mask)
         pos = torch.masked_select(torch.Tensor(self.h5pyfile['tertiary'][index]), mask).view(9, -1).transpose(0, 1)
-        (aa_list, phi_list, psi_list, omega_list) = calculate_dihedral_angels(prim, pos)
+        (phi_list, psi_list, omega_list) = calculate_dihedral_angels(pos)
+        aa_list = protein_id_to_str(prim)
         structure = get_structure_from_angles(aa_list, phi_list[1:], psi_list[:-1], omega_list[:-1])
-        tertiary = structure_to_backbone_atoms(structure).view(-1,9)
+        tertiary = structure_to_backbone_atoms(structure)
         return  prim, \
                 tertiary, \
                mask
@@ -86,8 +87,8 @@ def evaluate_model(data_loader, model):
         data_total.extend(minibatch_data)
         for primary_sequence, tertiary_positions,predicted_pos, structure, predicted_backbone_atoms in minibatch_data:
             actual_coords = tertiary_positions.transpose(0,1).contiguous().view(-1,3)
-            rmsd = calc_rmsd(predicted_backbone_atoms, actual_coords)
-            drmsd = calc_drmsd(predicted_backbone_atoms, actual_coords)
+            rmsd = calc_rmsd(predicted_backbone_atoms.transpose(0,1).contiguous().view(-1,3), actual_coords)
+            drmsd = calc_drmsd(predicted_backbone_atoms.transpose(0,1).contiguous().view(-1,3), actual_coords)
             RMSD_list.append(rmsd)
             dRMSD_list.append(drmsd)
             error = 1
@@ -141,8 +142,8 @@ def write_result_summary(accuracy):
 def calculate_dihedral_angles_over_minibatch(original_aa_sequence, atomic_coords):
     angles = []
     for idx, aa_sequence in enumerate(original_aa_sequence):
-        res = calculate_dihedral_angels(aa_sequence, atomic_coords[idx])
-        actual_angles_t = torch.stack((torch.Tensor(res[1]), torch.Tensor(res[2]), torch.Tensor(res[3]))).transpose(0,1)
+        res = calculate_dihedral_angels(atomic_coords[idx])
+        actual_angles_t = torch.stack((res[0],res[1],res[2])).transpose(0,1)
         angles.append(actual_angles_t)
     return torch.nn.utils.rnn.pad_packed_sequence(
             torch.nn.utils.rnn.pack_sequence(angles))
@@ -155,36 +156,61 @@ def protein_id_to_str(protein_id_list):
         aa_list.append(aa_symbol)
     return aa_list
 
-def calculate_dihedral_angels(original_aa_sequence, atomic_coords):
-    aa_list = protein_id_to_str(original_aa_sequence)
+def calculate_dihedral_angels(atomic_coords):
+
     assert int(atomic_coords.shape[1]) == 9
-    atomic_coords = list([Vector(v) for v in atomic_coords.contiguous().view(-1,3).numpy()])
-    phi_list = [0]
+    atomic_coords = list([v for v in atomic_coords.contiguous().view(-1,3)])
+    phi_list = [torch.tensor(0.0)]
     psi_list = []
     omega_list = []
     for i, coord in enumerate(atomic_coords):
-        if int(original_aa_sequence[int(i/3)]) == 0:
-            print("ERROR: Reached end of protein, stopping")
-            break
+        # TODO: This should be implemented in a GPU friendly way
+        #if int(original_aa_sequence[int(i/3)]) == 0:
+        #    print("ERROR: Reached end of protein, stopping")
+        #    break
 
         if i % 3 == 0:
             if i != 0:
-                phi_list.append(Bio.PDB.calc_dihedral(atomic_coords[i - 1],
-                                                                   atomic_coords[i],
-                                                                   atomic_coords[i + 1],
-                                                                   atomic_coords[i + 2]))
+                phi_list.append(calculate_dihedral_pytorch(atomic_coords[i - 1],
+                                                           atomic_coords[i],
+                                                           atomic_coords[i + 1],
+                                                           atomic_coords[i + 2]))
             if i+3 < len(atomic_coords):
-                psi_list.append(Bio.PDB.calc_dihedral(atomic_coords[i],
-                                                                   atomic_coords[i + 1],
-                                                                   atomic_coords[i + 2],
-                                                                   atomic_coords[i + 3]))
-                omega_list.append(Bio.PDB.calc_dihedral(atomic_coords[i + 1],
-                                                                     atomic_coords[i + 2],
-                                                                     atomic_coords[i + 3],
-                                                                     atomic_coords[i + 4]))
-    psi_list.append(0)
-    omega_list.append(0)
-    return (aa_list, phi_list, psi_list, omega_list)
+                psi_list.append(calculate_dihedral_pytorch(atomic_coords[i],
+                                                           atomic_coords[i + 1],
+                                                           atomic_coords[i + 2],
+                                                           atomic_coords[i + 3]))
+                omega_list.append(calculate_dihedral_pytorch(atomic_coords[i + 1],
+                                                             atomic_coords[i + 2],
+                                                             atomic_coords[i + 3],
+                                                             atomic_coords[i + 4]))
+    psi_list.append(torch.tensor(0.0))
+    omega_list.append(torch.tensor(0.0))
+    return (torch.stack(phi_list), torch.stack(psi_list), torch.stack(omega_list))
+
+def calculate_dihedral_pytorch(a, b, c, d):
+    bc = c - b
+    u = torch.cross(a - b, bc)
+    v = torch.cross(d - c, bc)
+    dihedral_angle = calc_angle_between_vec(u,v)
+    try:
+        if calc_angle_between_vec(bc,torch.cross(u, v)) > 0.00001:
+            return -dihedral_angle
+        else:
+            return dihedral_angle
+    except ZeroDivisionError:
+        return dihedral_angle
+
+def calc_angle_between_vec(a, b):
+    return torch.acos(
+        torch.min(
+            torch.max(
+                (torch.dot(a, b)) / (a.norm() * b.norm()),
+                torch.tensor(-1.0)
+            ),
+            torch.tensor(1.0)
+        )
+    )
 
 def get_structure_from_angles(aa_list, phi_list, psi_list, omega_list):
     assert len(aa_list) == len(phi_list)+1 == len(psi_list)+1 == len(omega_list)+1
@@ -273,7 +299,7 @@ def structure_to_backbone_atoms(structure):
         predicted_coords.append(torch.Tensor(res["N"].get_coord()))
         predicted_coords.append(torch.Tensor(res["CA"].get_coord()))
         predicted_coords.append(torch.Tensor(res["C"].get_coord()))
-    return torch.stack(predicted_coords)
+    return torch.stack(predicted_coords).view(-1,9)
 
 def get_structures_from_prediction(original_aa_string, emissions, batch_sizes):
     predicted_pos_list = list(
@@ -287,9 +313,21 @@ def get_structures_from_prediction(original_aa_string, emissions, batch_sizes):
         structures.append(structure)
     return structures
 
+
 def calc_avg_drmsd_over_minibatch(backbone_atoms_list, actual_coords_list):
     drmsd_avg = 0
     for idx, backbone_atoms in enumerate(backbone_atoms_list):
         actual_coords = actual_coords_list[idx].transpose(0, 1).contiguous().view(-1, 3)
-        drmsd_avg += calc_drmsd(backbone_atoms, actual_coords) / int(actual_coords.shape[0])
+        drmsd_avg += calc_drmsd(backbone_atoms.transpose(0, 1).contiguous().view(-1, 3), actual_coords) / int(actual_coords.shape[0])
     return drmsd_avg / len(backbone_atoms_list)
+
+
+def intial_pos_from_aa_string(batch_aa_string):
+    structures = []
+    for aa_string in batch_aa_string:
+        structure = get_structure_from_angles(protein_id_to_str(aa_string),
+                                              np.repeat([-120], len(aa_string)-1),
+                                              np.repeat([140], len(aa_string)-1),
+                                              np.repeat([-370], len(aa_string)-1))
+        structures.append(structure)
+    return structures
