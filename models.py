@@ -60,11 +60,10 @@ class ExampleModel(openprotein.BaseModel):
         p = torch.exp(self.soft(x))
         output = self.softmax_to_angle(p).transpose(0,1) # max size, minibatch size, 3 (angels)
         structures = get_structures_from_prediction(original_aa_string, output, emissions_padded[1])
-        return output, structures, emissions_padded[1]
+        return output, structures_to_backbone_atoms_list(structures), emissions_padded[1]
 
     def compute_loss(self, original_aa_string, actual_coords_list):
-        emissions, structures, batch_sizes = self._get_network_emissions(original_aa_string)
-        backbone_atoms_list = structures_to_backbone_atoms_list(structures)
+        emissions, backbone_atoms_list, batch_sizes = self._get_network_emissions(original_aa_string)
         emissions_actual, batch_sizes_actual = \
             calculate_dihedral_angles_over_minibatch(original_aa_string, actual_coords_list)
         drmsd_avg = calc_avg_drmsd_over_minibatch(backbone_atoms_list, actual_coords_list)

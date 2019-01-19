@@ -76,19 +76,19 @@ def evaluate_model(data_loader, model):
     for i, data in enumerate(data_loader, 0):
         primary_sequence, tertiary_positions, mask = data
 
-        predicted_positions, structures, batch_sizes = model(primary_sequence)
-        backbone_atoms_list = structures_to_backbone_atoms_list(structures)
+        predicted_positions, backbone_atoms_list, batch_sizes = model(primary_sequence)
         predicted_pos_list =  list([a[:batch_sizes[idx],:] for idx,a in enumerate(predicted_positions.transpose(0,1))])
         minibatch_data = list(zip(primary_sequence,
                                   tertiary_positions,
                                   predicted_pos_list,
-                                  structures,
+                                  get_structures_from_prediction(primary_sequence, predicted_positions, batch_sizes),
                                   backbone_atoms_list))
         data_total.extend(minibatch_data)
         for primary_sequence, tertiary_positions,predicted_pos, structure, predicted_backbone_atoms in minibatch_data:
             actual_coords = tertiary_positions.transpose(0,1).contiguous().view(-1,3)
-            rmsd = calc_rmsd(predicted_backbone_atoms.transpose(0,1).contiguous().view(-1,3), actual_coords)
-            drmsd = calc_drmsd(predicted_backbone_atoms.transpose(0,1).contiguous().view(-1,3), actual_coords)
+            predicted_coords = predicted_backbone_atoms.transpose(0,1).contiguous().view(-1,3).detach()
+            rmsd = calc_rmsd(predicted_coords, actual_coords)
+            drmsd = calc_drmsd(predicted_coords, actual_coords)
             RMSD_list.append(rmsd)
             dRMSD_list.append(drmsd)
             error = 1
