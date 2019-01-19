@@ -164,53 +164,53 @@ def calculate_dihedral_angels(atomic_coords):
     psi_list = []
     omega_list = []
     for i, coord in enumerate(atomic_coords):
+        # TODO: This should be implemented in a GPU friendly way
         #if int(original_aa_sequence[int(i/3)]) == 0:
         #    print("ERROR: Reached end of protein, stopping")
         #    break
 
         if i % 3 == 0:
             if i != 0:
-                phi_list.append(dihedral_pytorch(atomic_coords[i - 1],
-                                                                   atomic_coords[i],
-                                                                   atomic_coords[i + 1],
-                                                                   atomic_coords[i + 2]))
+                phi_list.append(calculate_dihedral_pytorch(atomic_coords[i - 1],
+                                                           atomic_coords[i],
+                                                           atomic_coords[i + 1],
+                                                           atomic_coords[i + 2]))
             if i+3 < len(atomic_coords):
-                psi_list.append(dihedral_pytorch(atomic_coords[i],
-                                                                   atomic_coords[i + 1],
-                                                                   atomic_coords[i + 2],
-                                                                   atomic_coords[i + 3]))
-                omega_list.append(dihedral_pytorch(atomic_coords[i + 1],
-                                                                     atomic_coords[i + 2],
-                                                                     atomic_coords[i + 3],
-                                                                     atomic_coords[i + 4]))
+                psi_list.append(calculate_dihedral_pytorch(atomic_coords[i],
+                                                           atomic_coords[i + 1],
+                                                           atomic_coords[i + 2],
+                                                           atomic_coords[i + 3]))
+                omega_list.append(calculate_dihedral_pytorch(atomic_coords[i + 1],
+                                                             atomic_coords[i + 2],
+                                                             atomic_coords[i + 3],
+                                                             atomic_coords[i + 4]))
     psi_list.append(torch.tensor(0.0))
     omega_list.append(torch.tensor(0.0))
     return (torch.stack(phi_list), torch.stack(psi_list), torch.stack(omega_list))
 
-def dihedral_pytorch(v1, v2, v3, v4):
-    ab = v1 - v2
-    cb = v3 - v2
-    db = v4 - v3
-    u = torch.cross(ab, cb)
-    v = torch.cross(db, cb)
-    w = torch.cross(u, v)
-    angle = calc_angle(u,v)
-    # Determine sign of angle
+def calculate_dihedral_pytorch(a, b, c, d):
+    bc = c - b
+    u = torch.cross(a - b, bc)
+    v = torch.cross(d - c, bc)
+    dihedral_angle = calc_angle_between_vec(u,v)
     try:
-        if calc_angle(cb,w) > 0.001:
-            angle = -angle
+        if calc_angle_between_vec(bc,torch.cross(u, v)) > 0.00001:
+            return -dihedral_angle
+        else:
+            return dihedral_angle
     except ZeroDivisionError:
-        # dihedral=pi
-        pass
-    return angle
+        return dihedral_angle
 
-def calc_angle(a, b):
-    n1 = a.norm()
-    n2 = b.norm()
-    c = (torch.dot(a, b)) / (n1 * n2)
-    c = torch.min(c, torch.tensor(1.0))
-    c = torch.max( torch.tensor(-1.0), c)
-    return torch.acos(c)
+def calc_angle_between_vec(a, b):
+    return torch.acos(
+        torch.min(
+            torch.max(
+                (torch.dot(a, b)) / (a.norm() * b.norm()),
+                torch.tensor(-1.0)
+            ),
+            torch.tensor(1.0)
+        )
+    )
 
 def get_structure_from_angles(aa_list, phi_list, psi_list, omega_list):
     assert len(aa_list) == len(phi_list)+1 == len(psi_list)+1 == len(omega_list)+1
