@@ -36,5 +36,16 @@ class BaseModel(nn.Module):
         packed_input_sequences = rnn_utils.pack_padded_sequence(input_sequences, batch_sizes)
         return packed_input_sequences
 
+    def compute_loss(self, original_aa_string, actual_coords_list):
+        emissions, backbone_atoms_list, batch_sizes = self._get_network_emissions(original_aa_string)
+        emissions_actual, batch_sizes_actual = \
+            calculate_dihedral_angles_over_minibatch(original_aa_string, actual_coords_list)
+        drmsd_avg = calc_avg_drmsd_over_minibatch(backbone_atoms_list, actual_coords_list)
+        if self.use_gpu:
+            emissions_actual = emissions_actual.cuda()
+            drmsd_avg = drmsd_avg.cuda()
+        angular_loss = calc_angular_difference(emissions, emissions_actual)
+        return angular_loss + drmsd_avg
+
     def forward(self, original_aa_string):
         return self._get_network_emissions(original_aa_string)

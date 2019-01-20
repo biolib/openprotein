@@ -23,13 +23,23 @@ class Visualizer extends React.Component<IVisualizeProb,any> {
 
         // @ts-ignore
         this.stage.removeAllComponents()
+
+        const schemeId = NGL.ColormakerRegistry.addSelectionScheme([
+            ["blue", "*"]
+        ], "Transmembrane 3dqb");
+        const schemeIdGreen = NGL.ColormakerRegistry.addSelectionScheme([
+            ["green", "*"]
+        ], "Transmembrane 3dqb");
         // @ts-ignore
-        this.stage.loadFile( stringBlobPred, { ext: "pdb", defaultRepresentation: true } ).then( ( structureComponent ) => {
-            structureComponent.addRepresentation( "cartoon" );
+        this.stage.loadFile( stringBlobPred, { ext: "pdb", defaultRepresentation: false } ).then( ( structureComponent ) => {
+            structureComponent.addRepresentation("cartoon", {color: schemeId });
             structureComponent.autoView();
         } );;
         // @ts-ignore
-        this.stage.loadFile( stringBlobTrue, { ext: "pdb", defaultRepresentation: true } );
+        this.stage.loadFile( stringBlobTrue, { ext: "pdb", defaultRepresentation: false } ).then( ( structureComponent ) => {
+            structureComponent.addRepresentation("cartoon", {color: schemeIdGreen });
+            structureComponent.autoView();
+        } );
 
     }
 
