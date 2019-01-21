@@ -67,7 +67,7 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
     validation_loader = contruct_dataloader_from_disk(val_file, minibatch_size)
     validation_dataset_size = validation_loader.dataset.__len__()
 
-    model = RrnModel(21, minibatch_size, use_gpu=use_gpu) # embed size = 21
+    model = ExampleModel(21, minibatch_size, use_gpu=use_gpu) # embed size = 21
 
     # TODO: is soft_to_angle.parameters() included here?
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)

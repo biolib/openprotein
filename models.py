@@ -130,23 +130,3 @@ class RrnModel(openprotein.BaseModel):
         return output, list(backbone_atoms), batch_sizes
 
 
-
-def pass_messages(aa_features, message_transformation):
-    # aa_features (#aa, #features) - each row represents the amino acid type (embedding) and the positions of the backbone atoms
-    # message_transformation: (-1 * 2 * feature_size) -> (-1 * output message size)
-    feature_size = aa_features.size(1)
-    aa_count = aa_features.size(0)
-    eye = torch.eye(aa_count,dtype=torch.uint8).view(-1).expand(2,feature_size,-1).transpose(1,2).transpose(0,1)
-    eye_inverted = torch.ones(eye.size(),dtype=torch.uint8) - eye
-    features_repeated = aa_features.repeat((aa_count,1)).view((aa_count,aa_count,feature_size))
-    aa_messages = torch.stack((features_repeated.transpose(0,1), features_repeated)).transpose(0,1).transpose(1,2).view(-1,2,feature_size)
-    aa_msg_pairs = torch.masked_select(aa_messages,eye_inverted).view(-1,2,feature_size) # (aa_count^2 - aa_count) x 2 x aa_features     (all pairs except for reflexive connections)
-    transformed = message_transformation(aa_msg_pairs).view(aa_count, aa_count - 1, -1)
-    transformed_sum = transformed.sum(dim=1) # aa_count x output message size
-    return transformed_sum
-
-def test_pass_message():
-    data = torch.tensor([[1.0,2.2,1.1,2.2],[3.2,4.2,3.2,4.2],[5.2,6.2,5.2,6.2]])
-    print(pass_messages(data,lambda x : x.view(-1,8)))
-
-test_pass_message()
