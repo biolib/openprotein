@@ -62,17 +62,6 @@ class ExampleModel(openprotein.BaseModel):
         structures = get_structures_from_prediction(original_aa_string, output, emissions_padded[1])
         return output, structures_to_backbone_atoms_list(structures), emissions_padded[1]
 
-    def compute_loss(self, original_aa_string, actual_coords_list):
-        emissions, backbone_atoms_list, batch_sizes = self._get_network_emissions(original_aa_string)
-        emissions_actual, batch_sizes_actual = \
-            calculate_dihedral_angles_over_minibatch(original_aa_string, actual_coords_list)
-        drmsd_avg = calc_avg_drmsd_over_minibatch(backbone_atoms_list, actual_coords_list)
-        if self.use_gpu:
-            emissions_actual = emissions_actual.cuda()
-            drmsd_avg = drmsd_avg.cuda()
-        angular_loss = calc_angular_difference(emissions, emissions_actual)
-        return angular_loss + drmsd_avg
-
 class soft_to_angle(nn.Module):
     def __init__(self, mixture_size):
         super(soft_to_angle, self).__init__()
@@ -103,4 +92,41 @@ class soft_to_angle(nn.Module):
         omega = torch.atan2(omega_input_sin, omega_input_cos + eps)
 
         return torch.cat((phi, psi, omega), 2)
+
+
+class RrnModel(openprotein.BaseModel):
+    def __init__(self, embedding_size, minibatch_size, use_gpu):
+        super(RrnModel, self).__init__(use_gpu, embedding_size)
+        self.recurrent_steps = 2
+        self.hidden_size = 50
+        self.msg_output_size = 50
+        self.output_size = 9 # 3 dimensions * 3 coordinates for each aa
+        self.f_to_hid = nn.Linear((embedding_size*2 + 9), self.hidden_size, bias=True)
+        self.hid_to_pos = nn.Linear(self.hidden_size, self.msg_output_size, bias=True)
+        self.g = nn.Linear(embedding_size + 9 + self.msg_output_size, 9, bias=True) # (last state + orginal state)
+
+    def f(self, aa_features):
+        # aa_features: msg_count * 2 * feature_count
+        aa_features_transformed = torch.cat(
+            (
+                aa_features[:,0,0:21],
+                aa_features[:,1,0:21],
+                1 / (aa_features[:,0,21:30] - aa_features[:,1,21:30])
+            ), dim=1)
+        return self.hid_to_pos(self.f_to_hid(aa_features_transformed))  # msg_count * outputsize
+
+    def _get_network_emissions(self, original_aa_string):
+        initial_aa_pos = intial_pos_from_aa_string(original_aa_string)
+        packed_input_sequences = self.embed(original_aa_string)
+        backbone_atoms = torch.stack(structures_to_backbone_atoms_list(initial_aa_pos))
+        embedding_padded, batch_sizes = torch.nn.utils.rnn.pad_packed_sequence(
+            torch.nn.utils.rnn.PackedSequence(packed_input_sequences))
+        for i in range(self.recurrent_steps):
+            combined_features = torch.cat((embedding_padded.transpose(0,1),backbone_atoms),dim=2)
+            for idx, aa_features in enumerate(combined_features):
+                msg = pass_messages(aa_features, self.f) # aa_count * output size
+                backbone_atoms[idx] = self.g(torch.cat((aa_features, msg), dim=1))
+        output, batch_sizes = calculate_dihedral_angles_over_minibatch(original_aa_string,list(backbone_atoms))
+        return output, list(backbone_atoms), batch_sizes
+
 

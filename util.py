@@ -318,7 +318,7 @@ def calc_avg_drmsd_over_minibatch(backbone_atoms_list, actual_coords_list):
     drmsd_avg = 0
     for idx, backbone_atoms in enumerate(backbone_atoms_list):
         actual_coords = actual_coords_list[idx].transpose(0, 1).contiguous().view(-1, 3)
-        drmsd_avg += calc_drmsd(backbone_atoms.transpose(0, 1).contiguous().view(-1, 3), actual_coords) / int(actual_coords.shape[0])
+        drmsd_avg += calc_drmsd(backbone_atoms.transpose(0, 1).contiguous().view(-1, 3), actual_coords)
     return drmsd_avg / len(backbone_atoms_list)
 
 
