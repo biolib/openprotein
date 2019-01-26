@@ -32,6 +32,8 @@ class graphWebServer (threading.Thread):
    def __init__(self):
       threading.Thread.__init__(self)
    def run(self):
+       import logging
+       logging.basicConfig(filename="output/app.log", level=logging.DEBUG)
        app.run(debug=False, host='0.0.0.0')
 
 
