@@ -37,10 +37,14 @@ class BaseModel(nn.Module):
         return packed_input_sequences
 
     def compute_loss(self, original_aa_string, actual_coords_list):
-        emissions, backbone_atoms_list, batch_sizes = self._get_network_emissions(original_aa_string)
+        emissions, backbone_atoms_padded, batch_sizes = self._get_network_emissions(original_aa_string)
+        actual_coords_list_padded, batch_sizes_coords = torch.nn.utils.rnn.pad_packed_sequence(
+            torch.nn.utils.rnn.pack_sequence(actual_coords_list))
+        if self.use_gpu:
+            actual_coords_list_padded = actual_coords_list_padded.cuda()
         emissions_actual, batch_sizes_actual = \
-            calculate_dihedral_angles_over_minibatch(original_aa_string, actual_coords_list)
-        drmsd_avg = calc_avg_drmsd_over_minibatch(backbone_atoms_list, actual_coords_list)
+            calculate_dihedral_angles_over_minibatch(original_aa_string, actual_coords_list_padded, batch_sizes_coords, self.use_gpu)
+        drmsd_avg = calc_avg_drmsd_over_minibatch(backbone_atoms_padded, actual_coords_list_padded, batch_sizes)
         if self.use_gpu:
             emissions_actual = emissions_actual.cuda()
             drmsd_avg = drmsd_avg.cuda()
