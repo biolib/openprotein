@@ -33,14 +33,8 @@ class H5PytorchDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         mask = torch.Tensor(self.h5pyfile['mask'][index,:]).type(dtype=torch.uint8)
         prim = torch.masked_select(torch.Tensor(self.h5pyfile['primary'][index,:]).type(dtype=torch.long), mask)
-        pos = torch.masked_select(torch.Tensor(self.h5pyfile['tertiary'][index]), mask).view(9, -1).transpose(0, 1)
-        (phi_list, psi_list, omega_list) = calculate_dihedral_angels(pos)
-        aa_list = protein_id_to_str(prim)
-        structure = get_structure_from_angles(aa_list, phi_list[1:], psi_list[:-1], omega_list[:-1])
-        tertiary = structure_to_backbone_atoms(structure)
-        return  prim, \
-                tertiary, \
-               mask
+        tertiary = torch.Tensor(self.h5pyfile['tertiary'][index][:int(mask.sum())]) # max length x 9
+        return  prim, tertiary, mask
 
     def __len__(self):
         return self.num_proteins
@@ -74,9 +68,7 @@ def evaluate_model(data_loader, model):
     dRMSD_list = []
     RMSD_list = []
     for i, data in enumerate(data_loader, 0):
-        start = time.time()
         primary_sequence, tertiary_positions, mask = data
-        write_out("Validation ata loader time:", time.time() - start)
         start = time.time()
         predicted_positions, backbone_atoms_list, batch_sizes = model(primary_sequence)
         write_out("Apply model to validation minibatch:", time.time() - start)
@@ -194,28 +186,20 @@ def calculate_dihedral_angels(atomic_coords):
     return (torch.stack(phi_list), torch.stack(psi_list), torch.stack(omega_list))
 
 def calculate_dihedral_pytorch(a, b, c, d):
-    bc = c - b
-    u = torch.cross(a - b, bc)
-    v = torch.cross(d - c, bc)
-    dihedral_angle = calc_angle_between_vec(u,v)
-    try:
-        if calc_angle_between_vec(bc,torch.cross(u, v)) > 0.00001:
-            return -dihedral_angle
-        else:
-            return dihedral_angle
-    except ZeroDivisionError:
-        return dihedral_angle
+    bc = b - c
+    n1 = torch.cross(b - a, bc)
+    n2 = torch.cross(bc, d - c)
 
-def calc_angle_between_vec(a, b):
-    return torch.acos(
-        torch.min(
-            torch.max(
-                (torch.dot(a, b)) / (a.norm() * b.norm()),
-                torch.tensor(-1.0)
-            ),
-            torch.tensor(1.0)
-        )
-    )
+    n1 = n1 / n1.norm()
+    n2 = n2 / n2.norm()
+
+    m1 = torch.cross(n1, bc / bc.norm())
+
+    x = torch.dot(n1,n2)
+    y = torch.dot(m1, n2)
+
+    return torch.atan2(y,x)
+
 
 def get_structure_from_angles(aa_list, phi_list, psi_list, omega_list):
     assert len(aa_list) == len(phi_list)+1 == len(psi_list)+1 == len(omega_list)+1

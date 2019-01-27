@@ -9,7 +9,9 @@ import os.path
 import os
 import numpy as np
 import h5py
-from util import AA_ID_DICT
+from util import AA_ID_DICT, calculate_dihedral_angels, protein_id_to_str, get_structure_from_angles, \
+    structure_to_backbone_atoms, write_to_pdb
+import torch
 
 MAX_SEQUENCE_LENGTH = 2000
 
@@ -79,7 +81,7 @@ def process_file(input_file, output_file):
     current_buffer_size = 1
     current_buffer_allocaton = 0
     dset1 = f.create_dataset('primary',(current_buffer_size,MAX_SEQUENCE_LENGTH),maxshape=(None,MAX_SEQUENCE_LENGTH),dtype='int32')
-    dset2 = f.create_dataset('tertiary',(current_buffer_size,9,MAX_SEQUENCE_LENGTH),maxshape=(None,9, MAX_SEQUENCE_LENGTH),dtype='float')
+    dset2 = f.create_dataset('tertiary',(current_buffer_size,MAX_SEQUENCE_LENGTH,9),maxshape=(None,MAX_SEQUENCE_LENGTH, 9),dtype='float')
     dset3 = f.create_dataset('mask',(current_buffer_size,MAX_SEQUENCE_LENGTH),maxshape=(None,MAX_SEQUENCE_LENGTH),dtype='uint8')
 
     input_file_pointer = open("data/raw/" + input_file, "r")
@@ -92,7 +94,7 @@ def process_file(input_file, output_file):
         if current_buffer_allocaton >= current_buffer_size:
             current_buffer_size = current_buffer_size + 1
             dset1.resize((current_buffer_size,MAX_SEQUENCE_LENGTH))
-            dset2.resize((current_buffer_size,9 ,MAX_SEQUENCE_LENGTH))
+            dset2.resize((current_buffer_size,MAX_SEQUENCE_LENGTH, 9))
             dset3.resize((current_buffer_size,MAX_SEQUENCE_LENGTH))
 
 
@@ -109,8 +111,29 @@ def process_file(input_file, output_file):
         primary_padded[:sequence_length] = next_protein['primary']
         t_transposed = np.ravel(np.array(next_protein['tertiary']).T)
         t_reshaped = np.reshape(t_transposed, (sequence_length,9)).T
+
         tertiary_padded[:,:sequence_length] = t_reshaped
         mask_padded[:sequence_length] = next_protein['mask']
+
+        mask = torch.Tensor(mask_padded).type(dtype=torch.uint8)
+        prim = torch.masked_select(torch.Tensor(primary_padded).type(dtype=torch.long), mask)
+        pos = torch.masked_select(torch.Tensor(tertiary_padded), mask).view(9, -1).transpose(0, 1)
+
+        (phi_list, psi_list, omega_list) = calculate_dihedral_angels(pos)
+        aa_list = protein_id_to_str(prim)
+        structure = get_structure_from_angles(aa_list, phi_list[1:], psi_list[:-1], omega_list[:-1])
+
+        tertiary = structure_to_backbone_atoms(structure)
+
+        primary_padded = np.zeros(MAX_SEQUENCE_LENGTH)
+        tertiary_padded = np.zeros((MAX_SEQUENCE_LENGTH, 9))
+
+        length_after_mask_removed = len(prim)
+
+        primary_padded[:length_after_mask_removed] = prim.data.numpy()
+        tertiary_padded[:length_after_mask_removed, :] = tertiary.data.numpy()
+        mask_padded = np.zeros(MAX_SEQUENCE_LENGTH)
+        mask_padded[:length_after_mask_removed] = np.ones(length_after_mask_removed)
 
         dset1[current_buffer_allocaton] = primary_padded
         dset2[current_buffer_allocaton] = tertiary_padded
