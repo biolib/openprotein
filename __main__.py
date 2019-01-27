@@ -38,7 +38,7 @@ parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
                     default=5000, help='Minimum number of minibatch iterations.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
-                    default=1, help='Size of each minibatch.')
+                    default=15, help='Size of each minibatch.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
                     default=0.01, help='Learning rate to use during training.')
 args, unknown = parser.parse_known_args()
@@ -106,15 +106,18 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
             # for every eval_interval samples, plot performance on the validation set
             if minibatches_proccesed % args.eval_interval == 0:
 
+                write_out("Testing model on validation set...")
+
                 train_loss = loss_tracker.mean()
                 loss_tracker = np.zeros(0)
                 validation_loss, data_total, rmsd_avg, drmsd_avg = evaluate_model(validation_loader, model)
                 prim = data_total[0][0]
                 pos = data_total[0][1]
                 (phi_list, psi_list, omega_list) = calculate_dihedral_angels(pos)
+                (phi_list_pred, psi_list_pred, omega_list_pred) = calculate_dihedral_angels(data_total[0][3])
                 aa_list = protein_id_to_str(prim)
                 write_to_pdb(get_structure_from_angles(aa_list, phi_list[1:], psi_list[:-1], omega_list[:-1]), "test")
-                write_to_pdb(data_total[0][3], "test_pred")
+                write_to_pdb(get_structure_from_angles(aa_list, phi_list_pred[1:], psi_list_pred[:-1], omega_list_pred[:-1]), "test_pred")
                 if validation_loss < best_model_loss:
                     best_model_loss = validation_loss
                     best_model_minibatch_time = minibatches_proccesed

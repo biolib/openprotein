@@ -10,9 +10,9 @@ import h5py
 from datetime import datetime
 import PeptideBuilder
 import Bio.PDB
-from Bio.PDB.vectors import Vector
 import math
 import numpy as np
+import time
 
 AA_ID_DICT = {'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 8, 'K': 9,
               'L': 10, 'M': 11, 'N': 12, 'P': 13, 'Q': 14, 'R': 15, 'S': 16, 'T': 17,
@@ -33,14 +33,8 @@ class H5PytorchDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         mask = torch.Tensor(self.h5pyfile['mask'][index,:]).type(dtype=torch.uint8)
         prim = torch.masked_select(torch.Tensor(self.h5pyfile['primary'][index,:]).type(dtype=torch.long), mask)
-        pos = torch.masked_select(torch.Tensor(self.h5pyfile['tertiary'][index]), mask).view(9, -1).transpose(0, 1)
-        (phi_list, psi_list, omega_list) = calculate_dihedral_angels(pos)
-        aa_list = protein_id_to_str(prim)
-        structure = get_structure_from_angles(aa_list, phi_list[1:], psi_list[:-1], omega_list[:-1])
-        tertiary = structure_to_backbone_atoms(structure)
-        return  prim, \
-                tertiary, \
-               mask
+        tertiary = torch.Tensor(self.h5pyfile['tertiary'][index][:int(mask.sum())]) # max length x 9
+        return  prim, tertiary, mask
 
     def __len__(self):
         return self.num_proteins
@@ -75,16 +69,17 @@ def evaluate_model(data_loader, model):
     RMSD_list = []
     for i, data in enumerate(data_loader, 0):
         primary_sequence, tertiary_positions, mask = data
-
+        start = time.time()
         predicted_positions, backbone_atoms_list, batch_sizes = model(primary_sequence)
+        write_out("Apply model to validation minibatch:", time.time() - start)
         predicted_pos_list =  list([a[:batch_sizes[idx],:] for idx,a in enumerate(predicted_positions.transpose(0,1))])
         minibatch_data = list(zip(primary_sequence,
                                   tertiary_positions,
                                   predicted_pos_list,
-                                  get_structures_from_prediction(primary_sequence, predicted_positions, batch_sizes),
                                   backbone_atoms_list))
         data_total.extend(minibatch_data)
-        for primary_sequence, tertiary_positions,predicted_pos, structure, predicted_backbone_atoms in minibatch_data:
+        for primary_sequence, tertiary_positions,predicted_pos, predicted_backbone_atoms in minibatch_data:
+            start = time.time()
             actual_coords = tertiary_positions.transpose(0,1).contiguous().view(-1,3)
             predicted_coords = predicted_backbone_atoms.transpose(0,1).contiguous().view(-1,3).detach()
             rmsd = calc_rmsd(predicted_coords, actual_coords)
@@ -93,6 +88,8 @@ def evaluate_model(data_loader, model):
             dRMSD_list.append(drmsd)
             error = 1
             loss += error
+            end = time.time()
+            write_out("Calculate validation loss from predicted strucutre:", end - start)
     loss /= data_loader.dataset.__len__()
     return (loss, data_total, float(torch.Tensor(RMSD_list).mean()), float(torch.Tensor(dRMSD_list).mean()))
 
@@ -189,28 +186,20 @@ def calculate_dihedral_angels(atomic_coords):
     return (torch.stack(phi_list), torch.stack(psi_list), torch.stack(omega_list))
 
 def calculate_dihedral_pytorch(a, b, c, d):
-    bc = c - b
-    u = torch.cross(a - b, bc)
-    v = torch.cross(d - c, bc)
-    dihedral_angle = calc_angle_between_vec(u,v)
-    try:
-        if calc_angle_between_vec(bc,torch.cross(u, v)) > 0.00001:
-            return -dihedral_angle
-        else:
-            return dihedral_angle
-    except ZeroDivisionError:
-        return dihedral_angle
+    bc = b - c
+    n1 = torch.cross(b - a, bc)
+    n2 = torch.cross(bc, d - c)
 
-def calc_angle_between_vec(a, b):
-    return torch.acos(
-        torch.min(
-            torch.max(
-                (torch.dot(a, b)) / (a.norm() * b.norm()),
-                torch.tensor(-1.0)
-            ),
-            torch.tensor(1.0)
-        )
-    )
+    n1 = n1 / n1.norm()
+    n2 = n2 / n2.norm()
+
+    m1 = torch.cross(n1, bc / bc.norm())
+
+    x = torch.dot(n1,n2)
+    y = torch.dot(m1, n2)
+
+    return torch.atan2(y,x)
+
 
 def get_structure_from_angles(aa_list, phi_list, psi_list, omega_list):
     assert len(aa_list) == len(phi_list)+1 == len(psi_list)+1 == len(omega_list)+1
@@ -301,9 +290,9 @@ def structure_to_backbone_atoms(structure):
         predicted_coords.append(torch.Tensor(res["C"].get_coord()))
     return torch.stack(predicted_coords).view(-1,9)
 
-def get_structures_from_prediction(original_aa_string, emissions, batch_sizes):
+def get_structures_from_angular_prediction(original_aa_string, angular_emissions, batch_sizes):
     predicted_pos_list = list(
-        [a[:batch_sizes[idx], :] for idx, a in enumerate(emissions.transpose(0, 1))])
+        [a[:batch_sizes[idx], :] for idx, a in enumerate(angular_emissions.transpose(0, 1))])
     structures = []
     for idx, predicted_pos in enumerate(predicted_pos_list):
         structure = get_structure_from_angles(protein_id_to_str(original_aa_string[idx]),
@@ -313,6 +302,11 @@ def get_structures_from_prediction(original_aa_string, emissions, batch_sizes):
         structures.append(structure)
     return structures
 
+
+def get_backbone_positions_from_angular_prediction(original_aa_string, angular_emissions, batch_sizes):
+    return structures_to_backbone_atoms_list(
+        get_structures_from_angular_prediction(original_aa_string, angular_emissions, batch_sizes)
+    )
 
 def calc_avg_drmsd_over_minibatch(backbone_atoms_list, actual_coords_list):
     drmsd_avg = 0

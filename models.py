@@ -51,16 +51,16 @@ class ExampleModel(openprotein.BaseModel):
         packed_input_sequences = self.embed(original_aa_string)
         minibatch_size = int(packed_input_sequences[1][0])
         self.init_hidden(minibatch_size)
-        (data, batch_sizes), self.hidden_layer = self.bi_lstm(packed_input_sequences, self.hidden_layer)
-        emissions_padded = torch.nn.utils.rnn.pad_packed_sequence(
-            torch.nn.utils.rnn.PackedSequence(self.hidden_to_labels(data), batch_sizes))
-        x = emissions_padded[0].transpose(0,1).transpose(1,2) # minibatch_size, self.mixture_size, -1
+        (data, bi_lstm_batches), self.hidden_layer = self.bi_lstm(packed_input_sequences, self.hidden_layer)
+        emissions_padded, batch_sizes = torch.nn.utils.rnn.pad_packed_sequence(
+            torch.nn.utils.rnn.PackedSequence(self.hidden_to_labels(data), bi_lstm_batches))
+        x = emissions_padded.transpose(0,1).transpose(1,2) # minibatch_size, self.mixture_size, -1
         x = self.bn(x)
         x = x.transpose(1,2) #(minibatch_size, -1, self.mixture_size)
         p = torch.exp(self.soft(x))
         output = self.softmax_to_angle(p).transpose(0,1) # max size, minibatch size, 3 (angels)
-        structures = get_structures_from_prediction(original_aa_string, output, emissions_padded[1])
-        return output, structures_to_backbone_atoms_list(structures), emissions_padded[1]
+        backbone_atom_list = get_backbone_positions_from_angular_prediction(original_aa_string, output, batch_sizes)
+        return output, backbone_atom_list, batch_sizes
 
 class soft_to_angle(nn.Module):
     def __init__(self, mixture_size):
