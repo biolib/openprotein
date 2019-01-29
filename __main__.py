@@ -38,7 +38,7 @@ parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
                     default=5000, help='Minimum number of minibatch iterations.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
-                    default=25, help='Size of each minibatch.')
+                    default=1, help='Size of each minibatch.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
                     default=0.01, help='Learning rate to use during training.')
 args, unknown = parser.parse_known_args()
@@ -56,8 +56,8 @@ start_dashboard_server()
 
 process_raw_data(use_gpu, force_pre_processing_overwrite=False)
 
-training_file = "data/preprocessed/testing.hdf5"
-validation_file = "data/preprocessed/testing.hdf5"
+training_file = "data/preprocessed/sample.txt.hdf5"
+validation_file = "data/preprocessed/sample.txt.hdf5"
 testing_file = "data/preprocessed/testing.hdf5"
 
 def train_model(data_set_identifier, train_file, val_file, learning_rate, minibatch_size):
@@ -119,11 +119,11 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                 if use_gpu:
                     pos = pos.cuda()
                     pos_pred = pos_pred.cuda()
-                (omega_list, phi_list, psi_list) = calculate_dihedral_angels(pos, use_gpu)
-                (omega_list_pred, phi_list_pred, psi_list_pred) = calculate_dihedral_angels(pos_pred, use_gpu)
+                angles = calculate_dihedral_angels(pos, use_gpu)
+                angles_pred = calculate_dihedral_angels(pos_pred, use_gpu)
                 aa_list = protein_id_to_str(prim)
-                write_to_pdb(get_structure_from_angles(aa_list, phi_list[1:], psi_list[:-1], omega_list[1:]), "test")
-                write_to_pdb(get_structure_from_angles(aa_list, phi_list_pred[1:], psi_list_pred[:-1], omega_list_pred[1:]), "test_pred")
+                write_to_pdb(get_structure_from_angles(aa_list, angles), "test")
+                write_to_pdb(get_structure_from_angles(aa_list, angles_pred), "test_pred")
                 if validation_loss < best_model_loss:
                     best_model_loss = validation_loss
                     best_model_minibatch_time = minibatches_proccesed
@@ -146,10 +146,10 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                     data["sample_num"] = sample_num
                     data["train_loss_values"] = train_loss_values
                     data["validation_loss_values"] = validation_loss_values
-                    data["phi_actual"] = list([math.degrees(float(v)) for v in phi_list[1:]])
-                    data["psi_actual"] = list([math.degrees(float(v)) for v in psi_list[:-1]])
-                    data["phi_predicted"] = list([math.degrees(float(v)) for v in phi_list_pred[1:]])
-                    data["psi_predicted"] = list([math.degrees(float(v)) for v in psi_list_pred[:-1]])
+                    data["phi_actual"] = list([math.degrees(float(v)) for v in angles[1:,1]])
+                    data["psi_actual"] = list([math.degrees(float(v)) for v in angles[:-1,2]])
+                    data["phi_predicted"] = list([math.degrees(float(v)) for v in angles_pred[1:,1]])
+                    data["psi_predicted"] = list([math.degrees(float(v)) for v in angles_pred[:-1,2]])
                     data["drmsd_avg"] = drmsd_avg_values
                     data["rmsd_avg"] = rmsd_avg_values
                     res = requests.post('http://localhost:5000/graph', json=data)
