@@ -157,7 +157,7 @@ def protein_id_to_str(protein_id_list):
 def calculate_dihedral_angels(atomic_coords, use_gpu):
 
     assert int(atomic_coords.shape[1]) == 9
-    atomic_coords = list([v for v in atomic_coords.contiguous().view(-1,3)])
+    atomic_coords = atomic_coords.contiguous().view(-1,3)
 
     zero_tensor = torch.tensor(0.0)
     if use_gpu:
@@ -171,34 +171,21 @@ def calculate_dihedral_angels(atomic_coords, use_gpu):
 
 def compute_dihedral_list(atomic_coords):
     # atomic_coords is -1 x 3
-    dihedral_list = []
-    for i, coord in enumerate(atomic_coords):
-        if i < len(atomic_coords) - 3:
-            dihedral_list.append(
-                calculate_dihedral_pytorch(
-                    atomic_coords[i],
-                    atomic_coords[i + 1],
-                    atomic_coords[i + 2],
-                    atomic_coords[i + 3]
-                )
-            )
-    return dihedral_list
+    ba = atomic_coords[1:] - atomic_coords[:-1]
+    ba /= ba.norm(dim=1).unsqueeze(1)
+    ba_neg = -1 * ba
 
-def calculate_dihedral_pytorch(a, b, c, d):
-    bc = b - c
-    n1 = torch.cross(b - a, bc)
-    n2 = torch.cross(bc, d - c)
+    n1_vec = torch.cross(ba[:-2], ba_neg[1:-1], dim=1)
+    n2_vec = torch.cross(ba_neg[1:-1], ba[2:], dim=1)
+    n1_vec /= n1_vec.norm(dim=1).unsqueeze(1)
+    n2_vec /= n2_vec.norm(dim=1).unsqueeze(1)
 
-    n1 = n1 / n1.norm()
-    n2 = n2 / n2.norm()
+    m1_vec = torch.cross(n1_vec, ba_neg[1:-1], dim=1)
 
-    m1 = torch.cross(n1, bc / bc.norm())
-
-    x = torch.dot(n1,n2)
-    y = torch.dot(m1, n2)
+    x = torch.sum(n1_vec*n2_vec,dim=1)
+    y = torch.sum(m1_vec*n2_vec,dim=1)
 
     return torch.atan2(y,x)
-
 
 def get_structure_from_angles(aa_list, angles):
     omega_list = angles[1:,0]
