@@ -163,21 +163,26 @@ def calculate_dihedral_angels(atomic_coords, use_gpu):
     if use_gpu:
         zero_tensor = zero_tensor.cuda()
 
-    omega_list = [zero_tensor]
-    phi_list = [zero_tensor]
-    psi_list = []
-
     dihedral_list = [zero_tensor,zero_tensor]
-
-    for i, coord in enumerate(atomic_coords):
-        if i < len(atomic_coords) - 3:
-            dihedral_list.append(calculate_dihedral_pytorch(atomic_coords[i],
-                                                       atomic_coords[i + 1],
-                                                       atomic_coords[i + 2],
-                                                       atomic_coords[i + 3]))
+    dihedral_list.extend(compute_dihedral_list(atomic_coords))
     dihedral_list.append(zero_tensor)
     angles = torch.tensor(dihedral_list).view(-1,3)
     return angles
+
+def compute_dihedral_list(atomic_coords):
+    # atomic_coords is -1 x 3
+    dihedral_list = []
+    for i, coord in enumerate(atomic_coords):
+        if i < len(atomic_coords) - 3:
+            dihedral_list.append(
+                calculate_dihedral_pytorch(
+                    atomic_coords[i],
+                    atomic_coords[i + 1],
+                    atomic_coords[i + 2],
+                    atomic_coords[i + 3]
+                )
+            )
+    return dihedral_list
 
 def calculate_dihedral_pytorch(a, b, c, d):
     bc = b - c
