@@ -34,11 +34,11 @@ parser.add_argument('--hide-ui', dest = 'hide_ui', action = 'store_true',
 parser.add_argument('--evaluate-on-test', dest = 'evaluate_on_test', action = 'store_true',
                     default=False, help='Run model of test data.')
 parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
-                    default=1, help='Evaluate model on validation set every n minibatches.')
+                    default=5, help='Evaluate model on validation set every n minibatches.')
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
                     default=5000, help='Minimum number of minibatch iterations.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
-                    default=15, help='Size of each minibatch.')
+                    default=25, help='Size of each minibatch.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
                     default=0.01, help='Learning rate to use during training.')
 args, unknown = parser.parse_known_args()
@@ -54,10 +54,10 @@ if torch.cuda.is_available():
 # start web server
 start_dashboard_server()
 
-process_raw_data(force_pre_processing_overwrite=False)
+process_raw_data(use_gpu, force_pre_processing_overwrite=False)
 
-training_file = "data/preprocessed/sample.txt.hdf5"
-validation_file = "data/preprocessed/sample.txt.hdf5"
+training_file = "data/preprocessed/testing.hdf5"
+validation_file = "data/preprocessed/testing.hdf5"
 testing_file = "data/preprocessed/testing.hdf5"
 
 def train_model(data_set_identifier, train_file, val_file, learning_rate, minibatch_size):
@@ -68,6 +68,8 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
     validation_dataset_size = validation_loader.dataset.__len__()
 
     model = ExampleModel(21, minibatch_size, use_gpu=use_gpu) # embed size = 21
+    if use_gpu:
+        model = model.cuda()
 
     # TODO: is soft_to_angle.parameters() included here?
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -113,11 +115,15 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                 validation_loss, data_total, rmsd_avg, drmsd_avg = evaluate_model(validation_loader, model)
                 prim = data_total[0][0]
                 pos = data_total[0][1]
-                (phi_list, psi_list, omega_list) = calculate_dihedral_angels(pos)
-                (phi_list_pred, psi_list_pred, omega_list_pred) = calculate_dihedral_angels(data_total[0][3])
+                pos_pred = data_total[0][3]
+                if use_gpu:
+                    pos = pos.cuda()
+                    pos_pred = pos_pred.cuda()
+                (omega_list, phi_list, psi_list) = calculate_dihedral_angels(pos, use_gpu)
+                (omega_list_pred, phi_list_pred, psi_list_pred) = calculate_dihedral_angels(pos_pred, use_gpu)
                 aa_list = protein_id_to_str(prim)
-                write_to_pdb(get_structure_from_angles(aa_list, phi_list[1:], psi_list[:-1], omega_list[:-1]), "test")
-                write_to_pdb(get_structure_from_angles(aa_list, phi_list_pred[1:], psi_list_pred[:-1], omega_list_pred[:-1]), "test_pred")
+                write_to_pdb(get_structure_from_angles(aa_list, phi_list[1:], psi_list[:-1], omega_list[1:]), "test")
+                write_to_pdb(get_structure_from_angles(aa_list, phi_list_pred[1:], psi_list_pred[:-1], omega_list_pred[1:]), "test_pred")
                 if validation_loss < best_model_loss:
                     best_model_loss = validation_loss
                     best_model_minibatch_time = minibatches_proccesed
@@ -142,8 +148,8 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                     data["validation_loss_values"] = validation_loss_values
                     data["phi_actual"] = list([math.degrees(float(v)) for v in phi_list[1:]])
                     data["psi_actual"] = list([math.degrees(float(v)) for v in psi_list[:-1]])
-                    data["phi_predicted"] = list([math.degrees(float(v)) for v in data_total[0][2].detach().transpose(0, 1)[0][1:]])
-                    data["psi_predicted"] = list([math.degrees(float(v)) for v in data_total[0][2].detach().transpose(0, 1)[1][:-1]])
+                    data["phi_predicted"] = list([math.degrees(float(v)) for v in phi_list_pred[1:]])
+                    data["psi_predicted"] = list([math.degrees(float(v)) for v in psi_list_pred[:-1]])
                     data["drmsd_avg"] = drmsd_avg_values
                     data["rmsd_avg"] = rmsd_avg_values
                     res = requests.post('http://localhost:5000/graph', json=data)

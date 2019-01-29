@@ -13,6 +13,7 @@ import Bio.PDB
 import math
 import numpy as np
 import time
+import pnerf.pnerf as pnerf
 
 AA_ID_DICT = {'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 8, 'K': 9,
               'L': 10, 'M': 11, 'N': 12, 'P': 13, 'Q': 14, 'R': 15, 'S': 16, 'T': 17,
@@ -70,18 +71,19 @@ def evaluate_model(data_loader, model):
     for i, data in enumerate(data_loader, 0):
         primary_sequence, tertiary_positions, mask = data
         start = time.time()
-        predicted_positions, backbone_atoms_list, batch_sizes = model(primary_sequence)
+        predicted_angles, backbone_atoms, batch_sizes = model(primary_sequence)
         write_out("Apply model to validation minibatch:", time.time() - start)
-        predicted_pos_list =  list([a[:batch_sizes[idx],:] for idx,a in enumerate(predicted_positions.transpose(0,1))])
+        cpu_predicted_angles = predicted_angles.transpose(0,1).cpu().detach()
+        cpu_predicted_backbone_atoms = backbone_atoms.transpose(0,1).cpu().detach()
         minibatch_data = list(zip(primary_sequence,
                                   tertiary_positions,
-                                  predicted_pos_list,
-                                  backbone_atoms_list))
+                                  cpu_predicted_angles,
+                                  cpu_predicted_backbone_atoms))
         data_total.extend(minibatch_data)
+        start = time.time()
         for primary_sequence, tertiary_positions,predicted_pos, predicted_backbone_atoms in minibatch_data:
-            start = time.time()
             actual_coords = tertiary_positions.transpose(0,1).contiguous().view(-1,3)
-            predicted_coords = predicted_backbone_atoms.transpose(0,1).contiguous().view(-1,3).detach()
+            predicted_coords = predicted_backbone_atoms[:len(primary_sequence)].transpose(0,1).contiguous().view(-1,3).detach()
             rmsd = calc_rmsd(predicted_coords, actual_coords)
             drmsd = calc_drmsd(predicted_coords, actual_coords)
             RMSD_list.append(rmsd)
@@ -89,7 +91,7 @@ def evaluate_model(data_loader, model):
             error = 1
             loss += error
             end = time.time()
-            write_out("Calculate validation loss from predicted strucutre:", end - start)
+        write_out("Calculate validation loss for minibatch took:", end - start)
     loss /= data_loader.dataset.__len__()
     return (loss, data_total, float(torch.Tensor(RMSD_list).mean()), float(torch.Tensor(dRMSD_list).mean()))
 
@@ -136,10 +138,11 @@ def write_result_summary(accuracy):
         output_file.flush()
     print(output_string, end="")
 
-def calculate_dihedral_angles_over_minibatch(original_aa_sequence, atomic_coords):
+def calculate_dihedral_angles_over_minibatch(atomic_coords_padded, batch_sizes, use_gpu):
     angles = []
-    for idx, aa_sequence in enumerate(original_aa_sequence):
-        res = calculate_dihedral_angels(atomic_coords[idx])
+    atomic_coords = atomic_coords_padded.transpose(0,1)
+    for idx, _ in enumerate(batch_sizes):
+        res = calculate_dihedral_angels(atomic_coords[idx][:batch_sizes[idx]], use_gpu)
         actual_angles_t = torch.stack((res[0],res[1],res[2])).transpose(0,1)
         angles.append(actual_angles_t)
     return torch.nn.utils.rnn.pad_packed_sequence(
@@ -153,13 +156,18 @@ def protein_id_to_str(protein_id_list):
         aa_list.append(aa_symbol)
     return aa_list
 
-def calculate_dihedral_angels(atomic_coords):
+def calculate_dihedral_angels(atomic_coords, use_gpu):
 
     assert int(atomic_coords.shape[1]) == 9
     atomic_coords = list([v for v in atomic_coords.contiguous().view(-1,3)])
-    phi_list = [torch.tensor(0.0)]
+
+    zero_tensor = torch.tensor(0.0)
+    if use_gpu:
+        zero_tensor = zero_tensor.cuda()
+
+    omega_list = [zero_tensor]
+    phi_list = [zero_tensor]
     psi_list = []
-    omega_list = []
     for i, coord in enumerate(atomic_coords):
         # TODO: This should be implemented in a GPU friendly way
         #if int(original_aa_sequence[int(i/3)]) == 0:
@@ -181,9 +189,8 @@ def calculate_dihedral_angels(atomic_coords):
                                                              atomic_coords[i + 2],
                                                              atomic_coords[i + 3],
                                                              atomic_coords[i + 4]))
-    psi_list.append(torch.tensor(0.0))
-    omega_list.append(torch.tensor(0.0))
-    return (torch.stack(phi_list), torch.stack(psi_list), torch.stack(omega_list))
+    psi_list.append(zero_tensor)
+    return (torch.stack(omega_list), torch.stack(phi_list), torch.stack(psi_list))
 
 def calculate_dihedral_pytorch(a, b, c, d):
     bc = b - c
@@ -246,8 +253,8 @@ def transpose_atoms_to_center_of_mass(x):
 
 def calc_rmsd(chain_a, chain_b):
     # move to center of mass
-    a = chain_a.numpy().transpose()
-    b = chain_b.numpy().transpose()
+    a = chain_a.cpu().numpy().transpose()
+    b = chain_b.cpu().numpy().transpose()
     X = transpose_atoms_to_center_of_mass(a)
     Y = transpose_atoms_to_center_of_mass(b)
 
@@ -276,11 +283,13 @@ def calc_angular_difference(a1, a2):
                       ) ** 2))
     return sum / a1.shape[0]
 
-def structures_to_backbone_atoms_list(structures):
+def structures_to_backbone_atoms_padded(structures):
     backbone_atoms_list = []
     for structure in structures:
         backbone_atoms_list.append(structure_to_backbone_atoms(structure))
-    return backbone_atoms_list
+    backbone_atoms_padded, batch_sizes_backbone = torch.nn.utils.rnn.pad_packed_sequence(
+        torch.nn.utils.rnn.pack_sequence(backbone_atoms_list))
+    return backbone_atoms_padded, batch_sizes_backbone
 
 def structure_to_backbone_atoms(structure):
     predicted_coords = []
@@ -290,25 +299,18 @@ def structure_to_backbone_atoms(structure):
         predicted_coords.append(torch.Tensor(res["C"].get_coord()))
     return torch.stack(predicted_coords).view(-1,9)
 
-def get_structures_from_angular_prediction(original_aa_string, angular_emissions, batch_sizes):
-    predicted_pos_list = list(
-        [a[:batch_sizes[idx], :] for idx, a in enumerate(angular_emissions.transpose(0, 1))])
-    structures = []
-    for idx, predicted_pos in enumerate(predicted_pos_list):
-        structure = get_structure_from_angles(protein_id_to_str(original_aa_string[idx]),
-                                              predicted_pos.detach().transpose(0, 1)[0][1:],
-                                              predicted_pos.detach().transpose(0, 1)[1][:-1],
-                                              predicted_pos.detach().transpose(0, 1)[2][:-1])
-        structures.append(structure)
-    return structures
+def get_backbone_positions_from_angular_prediction(angular_emissions, batch_sizes, use_gpu):
+    # angular_emissions -1 x minibatch size x 3 (omega, phi, psi)
+    points = pnerf.dihedral_to_point(angular_emissions, use_gpu)
+    coordinates = pnerf.point_to_coordinate(points, use_gpu) / 100 # devide by 100 to angstrom unit
+    return coordinates.transpose(0,1).contiguous().view(len(batch_sizes),-1,9).transpose(0,1), batch_sizes
 
 
-def get_backbone_positions_from_angular_prediction(original_aa_string, angular_emissions, batch_sizes):
-    return structures_to_backbone_atoms_list(
-        get_structures_from_angular_prediction(original_aa_string, angular_emissions, batch_sizes)
-    )
-
-def calc_avg_drmsd_over_minibatch(backbone_atoms_list, actual_coords_list):
+def calc_avg_drmsd_over_minibatch(backbone_atoms_padded, actual_coords_padded, batch_sizes):
+    backbone_atoms_list = list(
+        [backbone_atoms_padded[:batch_sizes[i], i] for i in range(int(backbone_atoms_padded.size(1)))])
+    actual_coords_list = list(
+        [actual_coords_padded[:batch_sizes[i], i] for i in range(int(actual_coords_padded.size(1)))])
     drmsd_avg = 0
     for idx, backbone_atoms in enumerate(backbone_atoms_list):
         actual_coords = actual_coords_list[idx].transpose(0, 1).contiguous().view(-1, 3)
@@ -326,13 +328,15 @@ def intial_pos_from_aa_string(batch_aa_string):
         structures.append(structure)
     return structures
 
-def pass_messages(aa_features, message_transformation):
+def pass_messages(aa_features, message_transformation, use_gpu):
     # aa_features (#aa, #features) - each row represents the amino acid type (embedding) and the positions of the backbone atoms
     # message_transformation: (-1 * 2 * feature_size) -> (-1 * output message size)
     feature_size = aa_features.size(1)
     aa_count = aa_features.size(0)
     eye = torch.eye(aa_count,dtype=torch.uint8).view(-1).expand(2,feature_size,-1).transpose(1,2).transpose(0,1)
     eye_inverted = torch.ones(eye.size(),dtype=torch.uint8) - eye
+    if use_gpu:
+        eye_inverted = eye_inverted.cuda()
     features_repeated = aa_features.repeat((aa_count,1)).view((aa_count,aa_count,feature_size))
     aa_messages = torch.stack((features_repeated.transpose(0,1), features_repeated)).transpose(0,1).transpose(1,2).view(-1,2,feature_size)
     aa_msg_pairs = torch.masked_select(aa_messages,eye_inverted).view(-1,2,feature_size) # (aa_count^2 - aa_count) x 2 x aa_features     (all pairs except for reflexive connections)

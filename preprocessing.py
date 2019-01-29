@@ -10,12 +10,13 @@ import os
 import numpy as np
 import h5py
 from util import AA_ID_DICT, calculate_dihedral_angels, protein_id_to_str, get_structure_from_angles, \
-    structure_to_backbone_atoms, write_to_pdb
+    structure_to_backbone_atoms, write_to_pdb, calculate_dihedral_angles_over_minibatch, \
+    get_backbone_positions_from_angular_prediction
 import torch
 
 MAX_SEQUENCE_LENGTH = 2000
 
-def process_raw_data(force_pre_processing_overwrite=True):
+def process_raw_data(use_gpu, force_pre_processing_overwrite=True):
     print("Starting pre-processing of raw data...")
     input_files = glob.glob("data/raw/*")
     input_files_filtered = filter_input_files(input_files)
@@ -33,7 +34,7 @@ def process_raw_data(force_pre_processing_overwrite=True):
                 print("Skipping pre-processing for this file...")
 
         if not os.path.isfile(preprocessed_file_name):
-            process_file(filename, preprocessed_file_name)
+            process_file(filename, preprocessed_file_name, use_gpu)
     print("Completed pre-processing.")
 
 def read_protein_from_file(file_pointer):
@@ -73,7 +74,7 @@ def read_protein_from_file(file_pointer):
                 return None
 
 
-def process_file(input_file, output_file):
+def process_file(input_file, output_file, use_gpu):
     print("Processing raw data file", input_file)
 
     # create output file
@@ -117,21 +118,23 @@ def process_file(input_file, output_file):
 
         mask = torch.Tensor(mask_padded).type(dtype=torch.uint8)
         prim = torch.masked_select(torch.Tensor(primary_padded).type(dtype=torch.long), mask)
-        pos = torch.masked_select(torch.Tensor(tertiary_padded), mask).view(9, -1).transpose(0, 1)
+        pos = torch.masked_select(torch.Tensor(tertiary_padded), mask).view(9, -1).transpose(0, 1).unsqueeze(1) / 100
 
-        (phi_list, psi_list, omega_list) = calculate_dihedral_angels(pos)
-        aa_list = protein_id_to_str(prim)
-        structure = get_structure_from_angles(aa_list, phi_list[1:], psi_list[:-1], omega_list[:-1])
+        if use_gpu:
+            pos = pos.cuda()
 
-        tertiary = structure_to_backbone_atoms(structure)
+        angles, batch_sizes = calculate_dihedral_angles_over_minibatch(pos, [len(prim)], use_gpu=use_gpu)
+
+        tertiary, _ = get_backbone_positions_from_angular_prediction(angles, batch_sizes, use_gpu=use_gpu)
+        tertiary = tertiary.squeeze(1)
 
         primary_padded = np.zeros(MAX_SEQUENCE_LENGTH)
         tertiary_padded = np.zeros((MAX_SEQUENCE_LENGTH, 9))
 
         length_after_mask_removed = len(prim)
 
-        primary_padded[:length_after_mask_removed] = prim.data.numpy()
-        tertiary_padded[:length_after_mask_removed, :] = tertiary.data.numpy()
+        primary_padded[:length_after_mask_removed] = prim.data.cpu().numpy()
+        tertiary_padded[:length_after_mask_removed, :] = tertiary.data.cpu().numpy()
         mask_padded = np.zeros(MAX_SEQUENCE_LENGTH)
         mask_padded[:length_after_mask_removed] = np.ones(length_after_mask_removed)
 

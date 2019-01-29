@@ -31,11 +31,6 @@ class ExampleModel(openprotein.BaseModel):
         self.softmax_to_angle = soft_to_angle(self.mixture_size)
         self.soft = nn.LogSoftmax(2)
         self.bn = nn.BatchNorm1d(self.mixture_size)
-        if self.use_gpu:
-            self.bi_lstm = self.bi_lstm.cuda()
-            self.bn = self.bn.cuda()
-            self.hidden_to_labels = self.hidden_to_labels.cuda()
-            self.softmax_to_angle = self.softmax_to_angle.cuda()
 
     def init_hidden(self, minibatch_size):
         # number of layers (* 2 since bidirectional), minibatch_size, hidden size
@@ -58,9 +53,9 @@ class ExampleModel(openprotein.BaseModel):
         x = self.bn(x)
         x = x.transpose(1,2) #(minibatch_size, -1, self.mixture_size)
         p = torch.exp(self.soft(x))
-        output = self.softmax_to_angle(p).transpose(0,1) # max size, minibatch size, 3 (angels)
-        backbone_atom_list = get_backbone_positions_from_angular_prediction(original_aa_string, output, batch_sizes)
-        return output, backbone_atom_list, batch_sizes
+        output_angles = self.softmax_to_angle(p).transpose(0,1) # max size, minibatch size, 3 (angels)
+        backbone_atoms_padded, batch_sizes_backbone = get_backbone_positions_from_angular_prediction(output_angles, batch_sizes, self.use_gpu)
+        return output_angles, backbone_atoms_padded, batch_sizes
 
 class soft_to_angle(nn.Module):
     def __init__(self, mixture_size):
@@ -104,29 +99,36 @@ class RrnModel(openprotein.BaseModel):
         self.f_to_hid = nn.Linear((embedding_size*2 + 9), self.hidden_size, bias=True)
         self.hid_to_pos = nn.Linear(self.hidden_size, self.msg_output_size, bias=True)
         self.g = nn.Linear(embedding_size + 9 + self.msg_output_size, 9, bias=True) # (last state + orginal state)
+        self.use_gpu = use_gpu
 
     def f(self, aa_features):
         # aa_features: msg_count * 2 * feature_count
+        min_distance = torch.tensor(0.000001)
+        if self.use_gpu:
+            min_distance = min_distance.cuda()
         aa_features_transformed = torch.cat(
             (
                 aa_features[:,0,0:21],
                 aa_features[:,1,0:21],
-                1 / (aa_features[:,0,21:30] - aa_features[:,1,21:30])
+                aa_features[:,0,21:30] - aa_features[:,1,21:30]
             ), dim=1)
         return self.hid_to_pos(self.f_to_hid(aa_features_transformed))  # msg_count * outputsize
 
     def _get_network_emissions(self, original_aa_string):
         initial_aa_pos = intial_pos_from_aa_string(original_aa_string)
         packed_input_sequences = self.embed(original_aa_string)
-        backbone_atoms = torch.stack(structures_to_backbone_atoms_list(initial_aa_pos))
+        backbone_atoms_padded, batch_sizes_backbone = structures_to_backbone_atoms_padded(initial_aa_pos)
+        if self.use_gpu:
+            backbone_atoms_padded = backbone_atoms_padded.cuda()
         embedding_padded, batch_sizes = torch.nn.utils.rnn.pad_packed_sequence(
             torch.nn.utils.rnn.PackedSequence(packed_input_sequences))
         for i in range(self.recurrent_steps):
-            combined_features = torch.cat((embedding_padded.transpose(0,1),backbone_atoms),dim=2)
-            for idx, aa_features in enumerate(combined_features):
-                msg = pass_messages(aa_features, self.f) # aa_count * output size
-                backbone_atoms[idx] = self.g(torch.cat((aa_features, msg), dim=1))
-        output, batch_sizes = calculate_dihedral_angles_over_minibatch(original_aa_string,list(backbone_atoms))
-        return output, list(backbone_atoms), batch_sizes
+            combined_features = torch.cat((embedding_padded,backbone_atoms_padded),dim=2)
+            for idx, aa_features in enumerate(combined_features.transpose(0,1)):
+                msg = pass_messages(aa_features, self.f, self.use_gpu) # aa_count * output size
+                backbone_atoms_padded[:,idx] = self.g(torch.cat((aa_features, msg), dim=1))
+
+        output, batch_sizes = calculate_dihedral_angles_over_minibatch(original_aa_string, backbone_atoms_padded, batch_sizes_backbone, self.use_gpu)
+        return output, backbone_atoms_padded, batch_sizes
 
 
