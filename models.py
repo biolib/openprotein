@@ -54,9 +54,7 @@ class ExampleModel(openprotein.BaseModel):
         x = x.transpose(1,2) #(minibatch_size, -1, self.mixture_size)
         p = torch.exp(self.soft(x))
         output_angles = self.softmax_to_angle(p).transpose(0,1) # max size, minibatch size, 3 (angels)
-        start = time.time()
-        backbone_atoms_padded, batch_sizes_backbone = get_backbone_positions_from_angular_prediction(original_aa_string, output_angles, batch_sizes)
-        write_out("Get backbone atoms from angles:", time.time() - start)
+        backbone_atoms_padded, batch_sizes_backbone = get_backbone_positions_from_angular_prediction(output_angles, batch_sizes, self.use_gpu)
         return output_angles, backbone_atoms_padded, batch_sizes
 
 class soft_to_angle(nn.Module):

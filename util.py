@@ -13,6 +13,7 @@ import Bio.PDB
 import math
 import numpy as np
 import time
+import pnerf.pnerf as pnerf
 
 AA_ID_DICT = {'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 8, 'K': 9,
               'L': 10, 'M': 11, 'N': 12, 'P': 13, 'Q': 14, 'R': 15, 'S': 16, 'T': 17,
@@ -79,8 +80,8 @@ def evaluate_model(data_loader, model):
                                   cpu_predicted_angles,
                                   cpu_predicted_backbone_atoms))
         data_total.extend(minibatch_data)
+        start = time.time()
         for primary_sequence, tertiary_positions,predicted_pos, predicted_backbone_atoms in minibatch_data:
-            start = time.time()
             actual_coords = tertiary_positions.transpose(0,1).contiguous().view(-1,3)
             predicted_coords = predicted_backbone_atoms[:len(primary_sequence)].transpose(0,1).contiguous().view(-1,3).detach()
             rmsd = calc_rmsd(predicted_coords, actual_coords)
@@ -90,7 +91,7 @@ def evaluate_model(data_loader, model):
             error = 1
             loss += error
             end = time.time()
-            write_out("Calculate validation loss from predicted strucutre:", end - start)
+        write_out("Calculate validation loss for minibatch took:", end - start)
     loss /= data_loader.dataset.__len__()
     return (loss, data_total, float(torch.Tensor(RMSD_list).mean()), float(torch.Tensor(dRMSD_list).mean()))
 
@@ -137,10 +138,10 @@ def write_result_summary(accuracy):
         output_file.flush()
     print(output_string, end="")
 
-def calculate_dihedral_angles_over_minibatch(original_aa_sequence, atomic_coords_padded, batch_sizes, use_gpu):
+def calculate_dihedral_angles_over_minibatch(atomic_coords_padded, batch_sizes, use_gpu):
     angles = []
     atomic_coords = atomic_coords_padded.transpose(0,1)
-    for idx, aa_sequence in enumerate(original_aa_sequence):
+    for idx, _ in enumerate(batch_sizes):
         res = calculate_dihedral_angels(atomic_coords[idx][:batch_sizes[idx]], use_gpu)
         actual_angles_t = torch.stack((res[0],res[1],res[2])).transpose(0,1)
         angles.append(actual_angles_t)
@@ -164,9 +165,9 @@ def calculate_dihedral_angels(atomic_coords, use_gpu):
     if use_gpu:
         zero_tensor = zero_tensor.cuda()
 
+    omega_list = [zero_tensor]
     phi_list = [zero_tensor]
     psi_list = []
-    omega_list = []
     for i, coord in enumerate(atomic_coords):
         # TODO: This should be implemented in a GPU friendly way
         #if int(original_aa_sequence[int(i/3)]) == 0:
@@ -189,8 +190,7 @@ def calculate_dihedral_angels(atomic_coords, use_gpu):
                                                              atomic_coords[i + 3],
                                                              atomic_coords[i + 4]))
     psi_list.append(zero_tensor)
-    omega_list.append(zero_tensor)
-    return (torch.stack(phi_list), torch.stack(psi_list), torch.stack(omega_list))
+    return (torch.stack(omega_list), torch.stack(phi_list), torch.stack(psi_list))
 
 def calculate_dihedral_pytorch(a, b, c, d):
     bc = b - c
@@ -299,23 +299,12 @@ def structure_to_backbone_atoms(structure):
         predicted_coords.append(torch.Tensor(res["C"].get_coord()))
     return torch.stack(predicted_coords).view(-1,9)
 
-def get_structures_from_angular_prediction(original_aa_string, angular_emissions, batch_sizes):
-    predicted_pos_list = list(
-        [a[:batch_sizes[idx], :] for idx, a in enumerate(angular_emissions.transpose(0, 1))])
-    structures = []
-    for idx, predicted_pos in enumerate(predicted_pos_list):
-        structure = get_structure_from_angles(protein_id_to_str(original_aa_string[idx]),
-                                              predicted_pos.detach().transpose(0, 1)[0][1:],
-                                              predicted_pos.detach().transpose(0, 1)[1][:-1],
-                                              predicted_pos.detach().transpose(0, 1)[2][:-1])
-        structures.append(structure)
-    return structures
+def get_backbone_positions_from_angular_prediction(angular_emissions, batch_sizes, use_gpu):
+    # angular_emissions -1 x minibatch size x 3 (omega, phi, psi)
+    points = pnerf.dihedral_to_point(angular_emissions, use_gpu)
+    coordinates = pnerf.point_to_coordinate(points, use_gpu) / 100 # devide by 100 to angstrom unit
+    return coordinates.transpose(0,1).contiguous().view(len(batch_sizes),-1,9).transpose(0,1), batch_sizes
 
-
-def get_backbone_positions_from_angular_prediction(original_aa_string, angular_emissions, batch_sizes):
-    return structures_to_backbone_atoms_padded(
-        get_structures_from_angular_prediction(original_aa_string, angular_emissions, batch_sizes)
-    )
 
 def calc_avg_drmsd_over_minibatch(backbone_atoms_padded, actual_coords_padded, batch_sizes):
     backbone_atoms_list = list(

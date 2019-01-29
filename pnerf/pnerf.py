@@ -20,7 +20,7 @@ BOND_LENGTHS = np.array([145.801, 152.326, 132.868], dtype=np.float32)
 BOND_ANGLES = np.array([2.124, 1.941, 2.028], dtype=np.float32)
 
 
-def dihedral_to_point(dihedral, bond_lengths=BOND_LENGTHS,
+def dihedral_to_point(dihedral, use_gpu, bond_lengths=BOND_LENGTHS,
                       bond_angles=BOND_ANGLES):
     """
     Takes triplets of dihedral angles (phi, psi, omega) and returns 3D points
@@ -36,6 +36,10 @@ def dihedral_to_point(dihedral, bond_lengths=BOND_LENGTHS,
     r_cos_theta = torch.tensor(bond_lengths * np.cos(np.pi - bond_angles))
     r_sin_theta = torch.tensor(bond_lengths * np.sin(np.pi - bond_angles))
 
+    if use_gpu:
+        r_cos_theta = r_cos_theta.cuda()
+        r_sin_theta = r_sin_theta.cuda()
+
     point_x = r_cos_theta.view(1, 1, -1).repeat(num_steps, batch_size, 1)
     point_y = torch.cos(dihedral) * r_sin_theta
     point_z = torch.sin(dihedral) * r_sin_theta
@@ -48,7 +52,7 @@ def dihedral_to_point(dihedral, bond_lengths=BOND_LENGTHS,
     return point_final
 
 
-def point_to_coordinate(points, num_fragments=6):
+def point_to_coordinate(points, use_gpu, num_fragments=6):
     """
     Takes points from dihedral_to_point and sequentially converts them into
     coordinates of a 3D structure.
@@ -80,6 +84,8 @@ def point_to_coordinate(points, num_fragments=6):
                          [-np.sqrt(2.0), 0, 0], [0, 0, 0]],
                         dtype=np.float32)
     init_matrix = torch.from_numpy(init_matrix)
+    if use_gpu:
+        init_matrix = init_matrix.cuda()
     init_coords = [row.repeat([num_fragments * batch_size, 1])
                       .view(num_fragments, batch_size, NUM_DIMENSIONS)
                    for row in init_matrix]
