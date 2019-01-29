@@ -80,7 +80,7 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
     rmsd_avg_values = list()
     drmsd_avg_values = list()
 
-    best_model_loss = 1.1
+    best_model_loss = 1e20
     best_model_minibatch_time = None
     best_model_path = None
     stopping_condition_met = False
@@ -121,16 +121,15 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                     pos_pred = pos_pred.cuda()
                 angles = calculate_dihedral_angels(pos, use_gpu)
                 angles_pred = calculate_dihedral_angels(pos_pred, use_gpu)
-                aa_list = protein_id_to_str(prim)
-                write_to_pdb(get_structure_from_angles(aa_list, angles), "test")
-                write_to_pdb(get_structure_from_angles(aa_list, angles_pred), "test_pred")
+                write_to_pdb(get_structure_from_angles(prim, angles), "test")
+                write_to_pdb(get_structure_from_angles(prim, angles_pred), "test_pred")
                 if validation_loss < best_model_loss:
                     best_model_loss = validation_loss
                     best_model_minibatch_time = minibatches_proccesed
                     best_model_path = write_model_to_disk(model)
 
                 write_out("Validation loss:", validation_loss, "Train loss:", train_loss)
-                write_out("Best model so far (label loss): ", validation_loss, "at time", best_model_minibatch_time)
+                write_out("Best model so far (validation loss): ", validation_loss, "at time", best_model_minibatch_time)
                 write_out("Best model stored at " + best_model_path)
                 write_out("Minibatches processed:",minibatches_proccesed)
                 sample_num.append(minibatches_proccesed)

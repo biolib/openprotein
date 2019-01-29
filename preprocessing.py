@@ -11,7 +11,7 @@ import numpy as np
 import h5py
 from util import AA_ID_DICT, calculate_dihedral_angels, protein_id_to_str, get_structure_from_angles, \
     structure_to_backbone_atoms, write_to_pdb, calculate_dihedral_angles_over_minibatch, \
-    get_backbone_positions_from_angular_prediction
+    get_backbone_positions_from_angular_prediction, encode_primary_string
 import torch
 
 MAX_SEQUENCE_LENGTH = 2000
@@ -49,7 +49,7 @@ def read_protein_from_file(file_pointer):
                 id_ = file_pointer.readline()[:-1]
                 dict_.update({'id': id_})
             elif next_line == '[PRIMARY]\n':
-                primary = list([AA_ID_DICT[aa] for aa in file_pointer.readline()[:-1]])
+                primary = encode_primary_string(file_pointer.readline()[:-1])
                 dict_.update({'primary': primary})
             elif next_line == '[EVOLUTIONARY]\n':
                 evolutionary = []
