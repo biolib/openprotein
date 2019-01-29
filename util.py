@@ -88,7 +88,7 @@ def evaluate_model(data_loader, model):
             drmsd = calc_drmsd(predicted_coords, actual_coords)
             RMSD_list.append(rmsd)
             dRMSD_list.append(drmsd)
-            error = 1
+            error = rmsd
             loss += error
             end = time.time()
         write_out("Calculate validation loss for minibatch took:", end - start)
@@ -187,7 +187,8 @@ def compute_dihedral_list(atomic_coords):
 
     return torch.atan2(y,x)
 
-def get_structure_from_angles(aa_list, angles):
+def get_structure_from_angles(aa_list_encoded, angles):
+    aa_list = protein_id_to_str(aa_list_encoded)
     omega_list = angles[1:,0]
     phi_list = angles[1:,1]
     psi_list = angles[:-1,2]
@@ -299,11 +300,13 @@ def calc_avg_drmsd_over_minibatch(backbone_atoms_padded, actual_coords_padded, b
         drmsd_avg += calc_drmsd(backbone_atoms.transpose(0, 1).contiguous().view(-1, 3), actual_coords)
     return drmsd_avg / len(backbone_atoms_list)
 
+def encode_primary_string(primary):
+    return list([AA_ID_DICT[aa] for aa in primary])
 
 def intial_pos_from_aa_string(batch_aa_string):
     structures = []
     for aa_string in batch_aa_string:
-        structure = get_structure_from_angles(protein_id_to_str(aa_string),
+        structure = get_structure_from_angles(aa_string,
                                               np.repeat([-120], len(aa_string)-1),
                                               np.repeat([140], len(aa_string)-1),
                                               np.repeat([-370], len(aa_string)-1))
