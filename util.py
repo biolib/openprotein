@@ -142,9 +142,7 @@ def calculate_dihedral_angles_over_minibatch(atomic_coords_padded, batch_sizes, 
     angles = []
     atomic_coords = atomic_coords_padded.transpose(0,1)
     for idx, _ in enumerate(batch_sizes):
-        res = calculate_dihedral_angels(atomic_coords[idx][:batch_sizes[idx]], use_gpu)
-        actual_angles_t = torch.stack((res[0],res[1],res[2])).transpose(0,1)
-        angles.append(actual_angles_t)
+        angles.append(calculate_dihedral_angels(atomic_coords[idx][:batch_sizes[idx]], use_gpu))
     return torch.nn.utils.rnn.pad_packed_sequence(
             torch.nn.utils.rnn.pack_sequence(angles))
 
@@ -168,29 +166,18 @@ def calculate_dihedral_angels(atomic_coords, use_gpu):
     omega_list = [zero_tensor]
     phi_list = [zero_tensor]
     psi_list = []
-    for i, coord in enumerate(atomic_coords):
-        # TODO: This should be implemented in a GPU friendly way
-        #if int(original_aa_sequence[int(i/3)]) == 0:
-        #    print("ERROR: Reached end of protein, stopping")
-        #    break
 
-        if i % 3 == 0:
-            if i != 0:
-                phi_list.append(calculate_dihedral_pytorch(atomic_coords[i - 1],
-                                                           atomic_coords[i],
-                                                           atomic_coords[i + 1],
-                                                           atomic_coords[i + 2]))
-            if i+3 < len(atomic_coords):
-                psi_list.append(calculate_dihedral_pytorch(atomic_coords[i],
-                                                           atomic_coords[i + 1],
-                                                           atomic_coords[i + 2],
-                                                           atomic_coords[i + 3]))
-                omega_list.append(calculate_dihedral_pytorch(atomic_coords[i + 1],
-                                                             atomic_coords[i + 2],
-                                                             atomic_coords[i + 3],
-                                                             atomic_coords[i + 4]))
-    psi_list.append(zero_tensor)
-    return (torch.stack(omega_list), torch.stack(phi_list), torch.stack(psi_list))
+    dihedral_list = [zero_tensor,zero_tensor]
+
+    for i, coord in enumerate(atomic_coords):
+        if i < len(atomic_coords) - 3:
+            dihedral_list.append(calculate_dihedral_pytorch(atomic_coords[i],
+                                                       atomic_coords[i + 1],
+                                                       atomic_coords[i + 2],
+                                                       atomic_coords[i + 3]))
+    dihedral_list.append(zero_tensor)
+    angles = torch.tensor(dihedral_list).view(-1,3)
+    return angles
 
 def calculate_dihedral_pytorch(a, b, c, d):
     bc = b - c
@@ -208,7 +195,10 @@ def calculate_dihedral_pytorch(a, b, c, d):
     return torch.atan2(y,x)
 
 
-def get_structure_from_angles(aa_list, phi_list, psi_list, omega_list):
+def get_structure_from_angles(aa_list, angles):
+    omega_list = angles[1:,0]
+    phi_list = angles[1:,1]
+    psi_list = angles[:-1,2]
     assert len(aa_list) == len(phi_list)+1 == len(psi_list)+1 == len(omega_list)+1
     structure = PeptideBuilder.make_structure(aa_list,
                                               list(map(lambda x: math.degrees(x), phi_list)),
