@@ -1,6 +1,8 @@
 # OpenProtein
 
-A PyTorch framework for the ProteinNet data set.
+A PyTorch framework for tertiary protein structure prediction.
+
+![Alt text](examplemodelrun.png?raw=true "OpenProtein")
 
 ## Getting started
 To run this project, simply git clone the repository and type `python __main__.py` in the terminal:
