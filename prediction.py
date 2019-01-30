@@ -17,8 +17,6 @@ input_senquences_encoded = list(torch.LongTensor(encode_primary_string(aa)) for 
 
 predicted_dihedral_angles, predicted_backbone_atoms, batch_sizes = model(input_senquences_encoded)
 
-predicted_dihedral_angles, _ = calculate_dihedral_angles_over_minibatch(predicted_backbone_atoms, batch_sizes, False)
-
 write_to_pdb(
     get_structure_from_angles(input_senquences_encoded[0], predicted_dihedral_angles[:,0]),
     "myprediction"
