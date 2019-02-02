@@ -306,10 +306,14 @@ def encode_primary_string(primary):
 def intial_pos_from_aa_string(batch_aa_string):
     structures = []
     for aa_string in batch_aa_string:
-        structure = get_structure_from_angles(aa_string,
-                                              np.repeat([-120], len(aa_string)-1),
-                                              np.repeat([140], len(aa_string)-1),
-                                              np.repeat([-370], len(aa_string)-1))
+        angles = torch.stack(
+            (
+                torch.tensor(np.repeat([-370], len(aa_string))),
+                torch.tensor(np.repeat([-120], len(aa_string))),
+                torch.tensor(np.repeat([140], len(aa_string)))
+            )
+        ).transpose(0,1);
+        structure = get_structure_from_angles(aa_string, angles)
         structures.append(structure)
     return structures
 

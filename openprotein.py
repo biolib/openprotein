@@ -46,14 +46,14 @@ class BaseModel(nn.Module):
         start = time.time()
         emissions_actual, batch_sizes_actual = \
             calculate_dihedral_angles_over_minibatch(actual_coords_list_padded, batch_sizes_coords, self.use_gpu)
-        #drmsd_avg = calc_avg_drmsd_over_minibatch(backbone_atoms_padded, actual_coords_list_padded, batch_sizes)
+        drmsd_avg = calc_avg_drmsd_over_minibatch(backbone_atoms_padded, actual_coords_list_padded, batch_sizes)
         write_out("Angle calculation time:", time.time() - start)
         if self.use_gpu:
             emissions_actual = emissions_actual.cuda()
-            #drmsd_avg = drmsd_avg.cuda()
+            drmsd_avg = drmsd_avg.cuda()
         angular_loss = calc_angular_difference(emissions, emissions_actual)
 
-        return angular_loss # + drmsd_avg
+        return angular_loss + drmsd_avg
 
     def forward(self, original_aa_string):
         return self._get_network_emissions(original_aa_string)

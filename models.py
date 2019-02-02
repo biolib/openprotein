@@ -128,7 +128,7 @@ class RrnModel(openprotein.BaseModel):
                 msg = pass_messages(aa_features, self.f, self.use_gpu) # aa_count * output size
                 backbone_atoms_padded[:,idx] = self.g(torch.cat((aa_features, msg), dim=1))
 
-        output, batch_sizes = calculate_dihedral_angles_over_minibatch(original_aa_string, backbone_atoms_padded, batch_sizes_backbone, self.use_gpu)
+        output, batch_sizes = calculate_dihedral_angles_over_minibatch(backbone_atoms_padded, batch_sizes_backbone, self.use_gpu)
         return output, backbone_atoms_padded, batch_sizes
 
 
