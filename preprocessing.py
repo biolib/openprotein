@@ -22,7 +22,10 @@ def process_raw_data(use_gpu, force_pre_processing_overwrite=True):
     print(input_files)
     input_files_filtered = filter_input_files(input_files)
     for file_path in input_files_filtered:
-        filename = file_path.split('\\')[-1]
+        if platform.system() == 'Windows':
+            filename = file_path.split('\\')[-1]
+        else:
+            filename = file_path.split('/')[-1]
         preprocessed_file_name = "data/preprocessed/"+filename+".hdf5"
 
         # check if we should remove the any previously processed files
@@ -81,7 +84,7 @@ def process_file(input_file, output_file, use_gpu):
     # create output file
     f = h5py.File(output_file, 'w')
     current_buffer_size = 1
-    current_buffer_allocaton = 0
+    current_buffer_allocation = 0
     dset1 = f.create_dataset('primary',(current_buffer_size,MAX_SEQUENCE_LENGTH),maxshape=(None,MAX_SEQUENCE_LENGTH),dtype='int32')
     dset2 = f.create_dataset('tertiary',(current_buffer_size,MAX_SEQUENCE_LENGTH,9),maxshape=(None,MAX_SEQUENCE_LENGTH, 9),dtype='float')
     dset3 = f.create_dataset('mask',(current_buffer_size,MAX_SEQUENCE_LENGTH),maxshape=(None,MAX_SEQUENCE_LENGTH),dtype='uint8')
@@ -93,7 +96,7 @@ def process_file(input_file, output_file, use_gpu):
         next_protein = read_protein_from_file(input_file_pointer)
         if next_protein is None:
             break
-        if current_buffer_allocaton >= current_buffer_size:
+        if current_buffer_allocation >= current_buffer_size:
             current_buffer_size = current_buffer_size + 1
             dset1.resize((current_buffer_size,MAX_SEQUENCE_LENGTH))
             dset2.resize((current_buffer_size,MAX_SEQUENCE_LENGTH, 9))
@@ -141,17 +144,14 @@ def process_file(input_file, output_file, use_gpu):
         mask_padded = np.zeros(MAX_SEQUENCE_LENGTH)
         mask_padded[:length_after_mask_removed] = np.ones(length_after_mask_removed)
 
-        dset1[current_buffer_allocaton] = primary_padded
-        dset2[current_buffer_allocaton] = tertiary_padded
-        dset3[current_buffer_allocaton] = mask_padded
-        current_buffer_allocaton += 1
+        dset1[current_buffer_allocation] = primary_padded
+        dset2[current_buffer_allocation] = tertiary_padded
+        dset3[current_buffer_allocation] = mask_padded
+        current_buffer_allocation += 1
 
-    print("Wrote output to", current_buffer_allocaton, "proteins to", output_file)
+    print("Wrote output to", current_buffer_allocation, "proteins to", output_file)
 
 
 def filter_input_files(input_files):
     disallowed_file_endings = (".gitignore", ".DS_Store")
     return list(filter(lambda x: not x.endswith(disallowed_file_endings), input_files))
-
-use_gpu=False
-process_raw_data(use_gpu, force_pre_processing_overwrite=True)
