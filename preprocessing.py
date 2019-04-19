@@ -7,6 +7,7 @@
 import glob
 import os.path
 import os
+import platform
 import numpy as np
 import h5py
 from util import AA_ID_DICT, calculate_dihedral_angles, protein_id_to_str, get_structure_from_angles, \
@@ -22,7 +23,7 @@ def process_raw_data(use_gpu, force_pre_processing_overwrite=True):
     print(input_files)
     input_files_filtered = filter_input_files(input_files)
     for file_path in input_files_filtered:
-        if platform.system() == 'Windows':
+        if platform.system() is 'Windows':
             filename = file_path.split('\\')[-1]
         else:
             filename = file_path.split('/')[-1]
