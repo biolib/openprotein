@@ -9,19 +9,20 @@ import os.path
 import os
 import numpy as np
 import h5py
-from util import AA_ID_DICT, calculate_dihedral_angels, protein_id_to_str, get_structure_from_angles, \
+from util import AA_ID_DICT, calculate_dihedral_angles, protein_id_to_str, get_structure_from_angles, \
     structure_to_backbone_atoms, write_to_pdb, calculate_dihedral_angles_over_minibatch, \
     get_backbone_positions_from_angular_prediction, encode_primary_string
 import torch
 
-MAX_SEQUENCE_LENGTH = 2000
+MAX_SEQUENCE_LENGTH = 750
 
 def process_raw_data(use_gpu, force_pre_processing_overwrite=True):
     print("Starting pre-processing of raw data...")
     input_files = glob.glob("data/raw/*")
+    print(input_files)
     input_files_filtered = filter_input_files(input_files)
     for file_path in input_files_filtered:
-        filename = file_path.split('/')[-1]
+        filename = file_path.split('\\')[-1]
         preprocessed_file_name = "data/preprocessed/"+filename+".hdf5"
 
         # check if we should remove the any previously processed files
@@ -80,7 +81,7 @@ def process_file(input_file, output_file, use_gpu):
     # create output file
     f = h5py.File(output_file, 'w')
     current_buffer_size = 1
-    current_buffer_allocaton = 0
+    current_buffer_allocaton = 0 # completely arbitrary
     dset1 = f.create_dataset('primary',(current_buffer_size,MAX_SEQUENCE_LENGTH),maxshape=(None,MAX_SEQUENCE_LENGTH),dtype='int32')
     dset2 = f.create_dataset('tertiary',(current_buffer_size,MAX_SEQUENCE_LENGTH,9),maxshape=(None,MAX_SEQUENCE_LENGTH, 9),dtype='float')
     dset3 = f.create_dataset('mask',(current_buffer_size,MAX_SEQUENCE_LENGTH),maxshape=(None,MAX_SEQUENCE_LENGTH),dtype='uint8')
@@ -98,7 +99,6 @@ def process_file(input_file, output_file, use_gpu):
             dset2.resize((current_buffer_size,MAX_SEQUENCE_LENGTH, 9))
             dset3.resize((current_buffer_size,MAX_SEQUENCE_LENGTH))
 
-
         sequence_length = len(next_protein['primary'])
 
         if sequence_length > MAX_SEQUENCE_LENGTH:
@@ -109,6 +109,8 @@ def process_file(input_file, output_file, use_gpu):
         tertiary_padded = np.zeros((9, MAX_SEQUENCE_LENGTH))
         mask_padded = np.zeros(MAX_SEQUENCE_LENGTH)
 
+        # masking and padding here happens so that the stored dataset is of the same size. 
+        # when the data is loaded in this padding is removed again. 
         primary_padded[:sequence_length] = next_protein['primary']
         t_transposed = np.ravel(np.array(next_protein['tertiary']).T)
         t_reshaped = np.reshape(t_transposed, (sequence_length,9)).T
@@ -117,6 +119,7 @@ def process_file(input_file, output_file, use_gpu):
         mask_padded[:sequence_length] = next_protein['mask']
 
         mask = torch.Tensor(mask_padded).type(dtype=torch.uint8)
+        
         prim = torch.masked_select(torch.Tensor(primary_padded).type(dtype=torch.long), mask)
         pos = torch.masked_select(torch.Tensor(tertiary_padded), mask).view(9, -1).transpose(0, 1).unsqueeze(1) / 100
 
@@ -149,3 +152,6 @@ def process_file(input_file, output_file, use_gpu):
 def filter_input_files(input_files):
     disallowed_file_endings = (".gitignore", ".DS_Store")
     return list(filter(lambda x: not x.endswith(disallowed_file_endings), input_files))
+
+use_gpu=False
+process_raw_data(use_gpu, force_pre_processing_overwrite=True)
