@@ -142,7 +142,7 @@ def calculate_dihedral_angles_over_minibatch(atomic_coords_padded, batch_sizes, 
     angles = []
     atomic_coords = atomic_coords_padded.transpose(0,1)
     for idx, _ in enumerate(batch_sizes):
-        angles.append(calculate_dihedral_angels(atomic_coords[idx][:batch_sizes[idx]], use_gpu))
+        angles.append(calculate_dihedral_angles(atomic_coords[idx][:batch_sizes[idx]], use_gpu))
     return torch.nn.utils.rnn.pad_packed_sequence(
             torch.nn.utils.rnn.pack_sequence(angles))
 
@@ -154,7 +154,7 @@ def protein_id_to_str(protein_id_list):
         aa_list.append(aa_symbol)
     return aa_list
 
-def calculate_dihedral_angels(atomic_coords, use_gpu):
+def calculate_dihedral_angles(atomic_coords, use_gpu):
 
     assert int(atomic_coords.shape[1]) == 9
     atomic_coords = atomic_coords.contiguous().view(-1,3)
