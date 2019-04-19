@@ -14,7 +14,7 @@ from util import AA_ID_DICT, calculate_dihedral_angles, protein_id_to_str, get_s
     get_backbone_positions_from_angular_prediction, encode_primary_string
 import torch
 
-MAX_SEQUENCE_LENGTH = 750
+MAX_SEQUENCE_LENGTH = 2000
 
 def process_raw_data(use_gpu, force_pre_processing_overwrite=True):
     print("Starting pre-processing of raw data...")
@@ -81,7 +81,7 @@ def process_file(input_file, output_file, use_gpu):
     # create output file
     f = h5py.File(output_file, 'w')
     current_buffer_size = 1
-    current_buffer_allocaton = 0 # completely arbitrary
+    current_buffer_allocaton = 0
     dset1 = f.create_dataset('primary',(current_buffer_size,MAX_SEQUENCE_LENGTH),maxshape=(None,MAX_SEQUENCE_LENGTH),dtype='int32')
     dset2 = f.create_dataset('tertiary',(current_buffer_size,MAX_SEQUENCE_LENGTH,9),maxshape=(None,MAX_SEQUENCE_LENGTH, 9),dtype='float')
     dset3 = f.create_dataset('mask',(current_buffer_size,MAX_SEQUENCE_LENGTH),maxshape=(None,MAX_SEQUENCE_LENGTH),dtype='uint8')
