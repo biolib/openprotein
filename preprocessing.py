@@ -97,17 +97,18 @@ def process_file(input_file, output_file, use_gpu):
         next_protein = read_protein_from_file(input_file_pointer)
         if next_protein is None:
             break
-        if current_buffer_allocation >= current_buffer_size:
-            current_buffer_size = current_buffer_size + 1
-            dset1.resize((current_buffer_size,MAX_SEQUENCE_LENGTH))
-            dset2.resize((current_buffer_size,MAX_SEQUENCE_LENGTH, 9))
-            dset3.resize((current_buffer_size,MAX_SEQUENCE_LENGTH))
 
         sequence_length = len(next_protein['primary'])
 
         if sequence_length > MAX_SEQUENCE_LENGTH:
             print("Dropping protein as length too long:", sequence_length)
             continue
+
+        if current_buffer_allocation >= current_buffer_size:
+            current_buffer_size = current_buffer_size + 1
+            dset1.resize((current_buffer_size,MAX_SEQUENCE_LENGTH))
+            dset2.resize((current_buffer_size,MAX_SEQUENCE_LENGTH, 9))
+            dset3.resize((current_buffer_size,MAX_SEQUENCE_LENGTH))
 
         primary_padded = np.zeros(MAX_SEQUENCE_LENGTH)
         tertiary_padded = np.zeros((9, MAX_SEQUENCE_LENGTH))
