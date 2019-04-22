@@ -42,15 +42,22 @@ class Metrics extends React.Component<IMetricsProbs, any> {
                     borderColor: 'rgb(54, 162, 235)',
                     data: [],
                     fill: false,
-                    label: 'Validation dRMSD avg',
+                    label: 'Validation loss',
                     yAxisID: 'y-axis-2'
+                }, {
+                    backgroundColor: 'rgb(101, 101, 101)',
+                    borderColor: 'rgb(101, 101, 101)',
+                    data: [],
+                    fill: false,
+                    label: 'Validation dRMSD avg',
+                    yAxisID: 'y-axis-3'
                 }, {
                     backgroundColor: 'rgb(75, 192, 192)',
                     borderColor: 'rgb(75, 192, 192)',
                     data: [],
                     fill: false,
                     label: 'Validation RMSD avg',
-                    yAxisID: 'y-axis-3'
+                    yAxisID: 'y-axis-4'
                 }],
                 labels: [],
             },
@@ -86,7 +93,7 @@ class Metrics extends React.Component<IMetricsProbs, any> {
                         position: 'right',
                         scaleLabel: {
                             display: true,
-                            labelString: 'dRMSD'
+                            labelString: 'Validation Loss'
                         },
                         type: 'linear', // only linear but allow scale type registration. This allows extensions to exist solely for log scale for instance
                     }, {
@@ -95,6 +102,18 @@ class Metrics extends React.Component<IMetricsProbs, any> {
                             drawOnChartArea: false, // only want the grid lines for one axis to show up
                         },
                         id: 'y-axis-3',
+                        position: 'right',
+                        scaleLabel: {
+                            display: true,
+                            labelString: 'dRMSD'
+                        },
+                        type: 'linear', // only linear but allow scale type registration. This allows extensions to exist solely for log scale for instance
+                    }, {
+                        display: true,
+                        gridLines: {
+                            drawOnChartArea: false, // only want the grid lines for one axis to show up
+                        },
+                        id: 'y-axis-4',
                         position: 'right',
                         scaleLabel: {
                             display: true,
@@ -176,19 +195,22 @@ class Metrics extends React.Component<IMetricsProbs, any> {
                 }
 
                 app.setPdbData({true: data.pdb_data_true, pred: data.pdb_data_pred});
-
-                scatterConfig.data.datasets[0].data = data.phi_actual.map( (h: any, i: any) => {
-                    return {
-                        x: h,
-                        y: data.psi_actual[i],
-                    };
-                });
-                scatterConfig.data.datasets[1].data = data.phi_predicted.map( (h: any, i: any) => {
-                    return {
-                        x: h,
-                        y: data.psi_predicted[i],
-                    };
-                });
+                if (data.phi_actual) {
+                    scatterConfig.data.datasets[0].data = data.phi_actual.map( (h: any, i: any) => {
+                        return {
+                            x: h,
+                            y: data.psi_actual[i],
+                        };
+                    });
+                }
+                if (data.phi_predicted) {
+                    scatterConfig.data.datasets[1].data = data.phi_predicted.map( (h: any, i: any) => {
+                        return {
+                            x: h,
+                            y: data.psi_predicted[i],
+                        };
+                    });
+                }
 
                 lineConfig.data.labels = data.sample_num
                 lineConfig.data.datasets[0].data = data.sample_num.map( (h: any, i: any) => {
@@ -197,18 +219,30 @@ class Metrics extends React.Component<IMetricsProbs, any> {
                         y: data.train_loss_values[i],
                     };
                 });
-                lineConfig.data.datasets[1].data = data.sample_num.map( (h: any, i: any) => {
-                    return {
-                        x: h,
-                        y: data.drmsd_avg[i],
-                    };
-                });
-                lineConfig.data.datasets[2].data = data.sample_num.map( (h: any, i: any) => {
-                    return {
-                        x: h,
-                        y: data.rmsd_avg[i],
-                    };
-                });
+                if (data.validation_loss_values) {
+                    lineConfig.data.datasets[1].data = data.sample_num.map( (h: any, i: any) => {
+                        return {
+                            x: h,
+                            y: data.validation_loss_values[i],
+                        };
+                    });
+                }
+                if (data.drmsd_avg) {
+                    lineConfig.data.datasets[2].data = data.sample_num.map( (h: any, i: any) => {
+                        return {
+                            x: h,
+                            y: data.drmsd_avg[i],
+                        };
+                    });
+                }
+                if (data.rmsd_avg) {
+                    lineConfig.data.datasets[3].data = data.sample_num.map( (h: any, i: any) => {
+                        return {
+                            x: h,
+                            y: data.rmsd_avg[i],
+                        };
+                    });
+                }
 
                 myChart.update();
                 myChart2.update();

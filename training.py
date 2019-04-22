@@ -65,8 +65,8 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
                 write_out("Best model stored at " + best_model_path)
                 write_out("Minibatches processed:",minibatches_proccesed)
                 sample_num.append(minibatches_proccesed)
-                train_loss_values.append(train_loss)
-                validation_loss_values.append(validation_loss)
+                train_loss_values.append(float(train_loss))
+                validation_loss_values.append(float(validation_loss))
 
                 if not hide_ui:
                     json_data["validation_dataset_size"] = validation_dataset_size

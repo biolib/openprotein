@@ -1,0 +1,3 @@
+[submodule "pytorchcrf"]
+	path = pytorchcrf
+	url = git@github.com:JeppeHallgren/pytorch-crf.git
