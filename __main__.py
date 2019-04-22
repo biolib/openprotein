@@ -52,10 +52,13 @@ testing_file = "data/preprocessed/testing.hdf5"
 
 model = ExampleModel(21, args.minibatch_size, use_gpu=use_gpu)  # embed size = 21
 
+train_loader = contruct_dataloader_from_disk(training_file, args.minibatch_size)
+validation_loader = contruct_dataloader_from_disk(validation_file, args.minibatch_size)
+
 train_model_path = train_model(data_set_identifier="TRAIN",
                                model=model,
-                               train_file=training_file,
-                               val_file=validation_file,
+                               train_loader=train_loader,
+                               validation_loader=validation_loader,
                                learning_rate=args.learning_rate,
                                minibatch_size=args.minibatch_size,
                                eval_interval=args.eval_interval,
