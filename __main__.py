@@ -19,7 +19,7 @@ from dashboard import start_dashboard_server
 
 from models import *
 from util import contruct_dataloader_from_disk, set_experiment_id, write_out, \
-    evaluate_model, write_model_to_disk, write_result_summary, write_to_pdb, calculate_dihedral_angels, \
+    evaluate_model, write_model_to_disk, write_result_summary, write_to_pdb, calculate_dihedral_angles, \
     get_structure_from_angles, protein_id_to_str
 
 print("------------------------")
@@ -119,8 +119,8 @@ def train_model(data_set_identifier, train_file, val_file, learning_rate, miniba
                 if use_gpu:
                     pos = pos.cuda()
                     pos_pred = pos_pred.cuda()
-                angles = calculate_dihedral_angels(pos, use_gpu)
-                angles_pred = calculate_dihedral_angels(pos_pred, use_gpu)
+                angles = calculate_dihedral_angles(pos, use_gpu)
+                angles_pred = calculate_dihedral_angles(pos_pred, use_gpu)
                 write_to_pdb(get_structure_from_angles(prim, angles), "test")
                 write_to_pdb(get_structure_from_angles(prim, angles_pred), "test_pred")
                 if validation_loss < best_model_loss:
