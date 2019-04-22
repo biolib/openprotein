@@ -63,38 +63,6 @@ def write_out(*args, end='\n'):
             output_file.flush()
     print(output_string, end="")
 
-def evaluate_model(data_loader, model):
-    loss = 0
-    data_total = []
-    dRMSD_list = []
-    RMSD_list = []
-    for i, data in enumerate(data_loader, 0):
-        primary_sequence, tertiary_positions, mask = data
-        start = time.time()
-        predicted_angles, backbone_atoms, batch_sizes = model(primary_sequence)
-        write_out("Apply model to validation minibatch:", time.time() - start)
-        cpu_predicted_angles = predicted_angles.transpose(0,1).cpu().detach()
-        cpu_predicted_backbone_atoms = backbone_atoms.transpose(0,1).cpu().detach()
-        minibatch_data = list(zip(primary_sequence,
-                                  tertiary_positions,
-                                  cpu_predicted_angles,
-                                  cpu_predicted_backbone_atoms))
-        data_total.extend(minibatch_data)
-        start = time.time()
-        for primary_sequence, tertiary_positions,predicted_pos, predicted_backbone_atoms in minibatch_data:
-            actual_coords = tertiary_positions.transpose(0,1).contiguous().view(-1,3)
-            predicted_coords = predicted_backbone_atoms[:len(primary_sequence)].transpose(0,1).contiguous().view(-1,3).detach()
-            rmsd = calc_rmsd(predicted_coords, actual_coords)
-            drmsd = calc_drmsd(predicted_coords, actual_coords)
-            RMSD_list.append(rmsd)
-            dRMSD_list.append(drmsd)
-            error = rmsd
-            loss += error
-            end = time.time()
-        write_out("Calculate validation loss for minibatch took:", end - start)
-    loss /= data_loader.dataset.__len__()
-    return (loss, data_total, float(torch.Tensor(RMSD_list).mean()), float(torch.Tensor(dRMSD_list).mean()))
-
 def write_model_to_disk(model):
     path = "output/models/"+globals().get("experiment_id")+".model"
     torch.save(model,path)
