@@ -18,7 +18,6 @@ def train_model(data_set_identifier, model, train_file, val_file, learning_rate,
     if use_gpu:
         model = model.cuda()
 
-    # TODO: is soft_to_angle.parameters() included here?
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     sample_num = list()
