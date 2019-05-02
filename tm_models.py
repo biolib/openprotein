@@ -194,6 +194,7 @@ class TMHMM3(openprotein.BaseModel):
 
     def compute_loss(self, training_minibatch):
         _, labels_list, remapped_labels_list, prot_type_list, prot_name_list, original_aa_string = training_minibatch
+        minibatch_size = len(labels_list)
         labels_to_use = remapped_labels_list if self.use_hmm_model else labels_list
         actual_labels = torch.nn.utils.rnn.pad_sequence([autograd.Variable(l) for l in labels_to_use])
 
@@ -205,14 +206,14 @@ class TMHMM3(openprotein.BaseModel):
                 last_label = None
                 for i in range(batch_size):
                     label = int(actual_labels[i][idx])
-                    print(str(label) + ",", end='')
+                    write_out(str(label) + ",", end='')
                     if last_label is not None and (last_label, label) not in self.allowed_transitions:
-                        print("Error: invalid transition found")
-                        print((last_label, label))
+                        write_out("Error: invalid transition found")
+                        write_out((last_label, label))
                         exit()
                     last_label = label
-                print(" ")
-        return loss
+                write_out(" ")
+        return loss / minibatch_size
 
     def calculate_margin_probabilities(self, input_sequences):
         print("Calculating marginal probabilities on minibatch")

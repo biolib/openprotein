@@ -34,6 +34,8 @@ parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
                     default=5000, help='Minimum number of minibatch iterations.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
                     default=64, help='Size of each minibatch.')
+parser.add_argument('--minibatch-size-validation', dest = 'minibatch_size_validation', type=int,
+                    default=64, help='Size of each minibatch during evaluation.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
                     default=0.01, help='Learning rate to use during training.')
 args, unknown = parser.parse_known_args()
@@ -86,7 +88,7 @@ test_preprocessed_set_TOPOLOGY = input_data_processed[5]
 print("Completed preprocessing of data...")
 
 train_loader = tm_contruct_dataloader_from_disk(train_preprocessed_set, args.minibatch_size, balance_classes=True)
-validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set, args.minibatch_size)
+validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set, args.minibatch_size_validation)
 
 use_hmm_model = True
 hidden_size = 128
