@@ -61,7 +61,7 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
                     best_model_path = write_model_to_disk(model)
 
                 write_out("Validation loss:", validation_loss, "Train loss:", train_loss)
-                write_out("Best model so far (validation loss): ", validation_loss, "at time", best_model_minibatch_time)
+                write_out("Best model so far (validation loss): ", best_model_loss, "at time", best_model_minibatch_time)
                 write_out("Best model stored at " + best_model_path)
                 write_out("Minibatches processed:",minibatches_proccesed)
                 sample_num.append(minibatches_proccesed)

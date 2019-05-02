@@ -273,7 +273,7 @@ class TMHMM3(openprotein.BaseModel):
 
         data = {}
 
-        return loss, data
+        return float(loss), data
 
 
 def is_sp(type_id):
