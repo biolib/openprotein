@@ -46,8 +46,9 @@ if torch.cuda.is_available():
     write_out("CUDA is available, using GPU")
     use_gpu = True
 
-# start web server
-start_dashboard_server()
+if not args.hide_ui:
+    # start web server
+    start_dashboard_server()
 
 #process_raw_data(use_gpu, force_pre_processing_overwrite=False)
 
