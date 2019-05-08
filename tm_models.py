@@ -36,6 +36,7 @@ class TMHMM3(openprotein.BaseModel):
         self.type_classier = None
         self.type_tm_classier = None
         self.type_sp_classier = None
+        self.ctc_loss = nn.CTCLoss()
         crf_transitions_mask = torch.ones((num_tags, num_tags)).byte()
 
         # if on GPU, move state to GPU memory
@@ -196,24 +197,37 @@ class TMHMM3(openprotein.BaseModel):
         _, labels_list, remapped_labels_list, prot_type_list, prot_name_list, original_aa_string = training_minibatch
         minibatch_size = len(labels_list)
         labels_to_use = remapped_labels_list if self.use_hmm_model else labels_list
-        actual_labels = torch.nn.utils.rnn.pad_sequence([autograd.Variable(l) for l in labels_to_use])
+        if False:
+            actual_labels = torch.nn.utils.rnn.pad_sequence([autograd.Variable(l) for l in labels_to_use])
 
-        input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
-        emissions, batch_sizes = self._get_network_emissions(input_sequences)
-        loss = -1 * self.crfModel(emissions, actual_labels, mask=self.batch_sizes_to_mask(batch_sizes))
-        if float(loss) > 100000:
-            for idx, batch_size in enumerate(batch_sizes):
-                last_label = None
-                for i in range(batch_size):
-                    label = int(actual_labels[i][idx])
-                    write_out(str(label) + ",", end='')
-                    if last_label is not None and (last_label, label) not in self.allowed_transitions:
-                        write_out("Error: invalid transition found")
-                        write_out((last_label, label))
-                        exit()
-                    last_label = label
-                write_out(" ")
-        return loss / minibatch_size
+            input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
+            emissions, batch_sizes = self._get_network_emissions(input_sequences)
+            loss = -1 * self.crfModel(emissions, actual_labels, mask=self.batch_sizes_to_mask(batch_sizes))
+            if float(loss) > 100000:
+                for idx, batch_size in enumerate(batch_sizes):
+                    last_label = None
+                    for i in range(batch_size):
+                        label = int(actual_labels[i][idx])
+                        write_out(str(label) + ",", end='')
+                        if last_label is not None and (last_label, label) not in self.allowed_transitions:
+                            write_out("Error: invalid transition found")
+                            write_out((last_label, label))
+                            exit()
+                        last_label = label
+                    write_out(" ")
+            return loss / minibatch_size
+        else:
+            # CTC loss
+            input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
+            emissions, batch_sizes = self._get_network_emissions(input_sequences)
+            blank = torch.ones((emissions.size()[0], emissions.size()[1], 1)).cuda() * 1e-20
+            em2 = torch.cat((blank, emissions), dim=2)
+            output = torch.nn.functional.log_softmax(em2, dim=2)
+            topologies = list([torch.stack(list([label for (idx, label) in label_list_to_topology(a+1)])) for a in labels_list])
+
+
+            targets, target_lengths = torch.nn.utils.rnn.pad_sequence(topologies).transpose(0,1), list([a.size()[0] for a in topologies])
+            return self.ctc_loss(output, targets, tuple(batch_sizes), tuple(target_lengths))
 
     def calculate_margin_probabilities(self, input_sequences):
         print("Calculating marginal probabilities on minibatch")

@@ -33,9 +33,9 @@ parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
                     default=5000, help='Minimum number of minibatch iterations.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
-                    default=64, help='Size of each minibatch.')
+                    default=50, help='Size of each minibatch.')
 parser.add_argument('--minibatch-size-validation', dest = 'minibatch_size_validation', type=int,
-                    default=64, help='Size of each minibatch during evaluation.')
+                    default=50, help='Size of each minibatch during evaluation.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
                     default=0.01, help='Learning rate to use during training.')
 args, unknown = parser.parse_known_args()
@@ -90,7 +90,7 @@ print("Completed preprocessing of data...")
 train_loader = tm_contruct_dataloader_from_disk(train_preprocessed_set, args.minibatch_size, balance_classes=True)
 validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set, args.minibatch_size_validation)
 
-use_hmm_model = True
+use_hmm_model = False
 hidden_size = 128
 embedding = "BLOSUM62"
 use_marg_prob = False
