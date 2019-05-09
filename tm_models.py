@@ -13,20 +13,27 @@ import time
 import openprotein
 from tm_util import *
 from sklearn.ensemble import RandomForestClassifier
+from enum import Enum
 
 # seed random generator for reproducibility
 torch.manual_seed(1)
 
 class TMHMM3(openprotein.BaseModel):
-    def __init__(self, num_labels, embedding, hidden_size, use_gpu, use_hmm_model, use_marg_prob, allowed_transitions):
+    def __init__(self, embedding, hidden_size, use_gpu, model_mode, use_marg_prob, allowed_transitions):
         super(TMHMM3, self).__init__(embedding, use_gpu)
 
         # initialize model variables
-        num_tags = num_labels + (2 * 40 if use_hmm_model else 0)
+        num_tags = 5
+        num_labels = 5
+        if model_mode == TMHMM3Mode.LSTM_CRF_HMM:
+            num_tags += 2 * 40
+        elif model_mode == TMHMM3Mode.LSTM_CTC:
+            num_tags += 1 # add extra class for blank
+            num_labels += 1
         self.hidden_size = hidden_size
         self.use_gpu = use_gpu
         self.use_marg_prob = use_marg_prob
-        self.use_hmm_model = use_hmm_model
+        self.model_mode = model_mode
         self.embedding = embedding
         self.embedding_function = nn.Embedding(24, self.get_embedding_size())
         self.bi_lstm = nn.LSTM(self.get_embedding_size(), self.hidden_size, num_layers=1, bidirectional=True)
@@ -168,9 +175,9 @@ class TMHMM3(openprotein.BaseModel):
         minibatch_size = len(input_sequences)
         self.init_hidden(minibatch_size)
         bi_lstm_out, self.hidden_layer = self.bi_lstm(packed, self.hidden_layer)
-        data, batch_sizes = bi_lstm_out
+        data, batch_sizes, _, _ = bi_lstm_out
         emissions = self.hidden_to_labels(data)
-        if self.use_hmm_model:
+        if self.model_mode == TMHMM3Mode.LSTM_CRF_HMM:
             inout_select = torch.LongTensor([0])
             outin_select = torch.LongTensor([1])
             if self.use_gpu:
@@ -196,10 +203,17 @@ class TMHMM3(openprotein.BaseModel):
     def compute_loss(self, training_minibatch):
         _, labels_list, remapped_labels_list, prot_type_list, prot_name_list, original_aa_string = training_minibatch
         minibatch_size = len(labels_list)
-        labels_to_use = remapped_labels_list if self.use_hmm_model else labels_list
-        if False:
+        labels_to_use = remapped_labels_list if self.model_mode == TMHMM3Mode.LSTM_CRF_HMM else labels_list
+        if self.model_mode == TMHMM3Mode.LSTM_CTC:
+            # CTC loss
+            input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
+            emissions, batch_sizes = self._get_network_emissions(input_sequences)
+            output = torch.nn.functional.log_softmax(emissions, dim=2)
+            topologies = list([torch.stack(list([label for (idx, label) in label_list_to_topology(a+1)])) for a in labels_list])
+            targets, target_lengths = torch.nn.utils.rnn.pad_sequence(topologies).transpose(0,1), list([a.size()[0] for a in topologies])
+            return self.ctc_loss(output, targets, tuple(batch_sizes), tuple(target_lengths))
+        else:
             actual_labels = torch.nn.utils.rnn.pad_sequence([autograd.Variable(l) for l in labels_to_use])
-
             input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
             emissions, batch_sizes = self._get_network_emissions(input_sequences)
             loss = -1 * self.crfModel(emissions, actual_labels, mask=self.batch_sizes_to_mask(batch_sizes))
@@ -216,18 +230,6 @@ class TMHMM3(openprotein.BaseModel):
                         last_label = label
                     write_out(" ")
             return loss / minibatch_size
-        else:
-            # CTC loss
-            input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
-            emissions, batch_sizes = self._get_network_emissions(input_sequences)
-            blank = torch.ones((emissions.size()[0], emissions.size()[1], 1)).cuda() * 1e-20
-            em2 = torch.cat((blank, emissions), dim=2)
-            output = torch.nn.functional.log_softmax(em2, dim=2)
-            topologies = list([torch.stack(list([label for (idx, label) in label_list_to_topology(a+1)])) for a in labels_list])
-
-
-            targets, target_lengths = torch.nn.utils.rnn.pad_sequence(topologies).transpose(0,1), list([a.size()[0] for a in topologies])
-            return self.ctc_loss(output, targets, tuple(batch_sizes), tuple(target_lengths))
 
     def calculate_margin_probabilities(self, input_sequences):
         print("Calculating marginal probabilities on minibatch")
@@ -315,3 +317,9 @@ def get_type_from_tm_sp(t):
             return 2
         else:
             return 3
+
+class TMHMM3Mode(Enum):
+    LSTM = 1
+    LSTM_CRF = 2
+    LSTM_CRF_HMM = 3
+    LSTM_CTC = 4

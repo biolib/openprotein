@@ -90,12 +90,13 @@ print("Completed preprocessing of data...")
 train_loader = tm_contruct_dataloader_from_disk(train_preprocessed_set, args.minibatch_size, balance_classes=True)
 validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set, args.minibatch_size_validation)
 
-use_hmm_model = False
+model_mode = TMHMM3Mode.LSTM_CTC
+
 hidden_size = 128
 embedding = "BLOSUM62"
 use_marg_prob = False
 
-if use_hmm_model:
+if model_mode == TMHMM3Mode.LSTM_CRF_HMM:
     allowed_transitions = [
         (2, 2), (3, 3), (4, 4),
         (3, 5), (4, 45),
@@ -122,11 +123,10 @@ else:
 #hmm_state_graph.render('output/hmm-states.gv', view=False)
 
 model = TMHMM3(
-    5,  # 5 possible labels (0, 1, 2, 3, 4)
     embedding,
     hidden_size,
     use_gpu,
-    use_hmm_model,
+    model_mode,
     use_marg_prob,
     allowed_transitions)
 
