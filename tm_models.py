@@ -9,6 +9,7 @@ import torch.autograd as autograd
 import torch.nn as nn
 from pytorchcrf.torchcrf import CRF
 import time
+import tensorflow as tf
 
 import openprotein
 from tm_util import *
@@ -43,7 +44,7 @@ class TMHMM3(openprotein.BaseModel):
         self.type_classier = None
         self.type_tm_classier = None
         self.type_sp_classier = None
-        self.ctc_loss = nn.CTCLoss()
+        self.ctc_loss = nn.CTCLoss(blank=5)
         crf_transitions_mask = torch.ones((num_tags, num_tags)).byte()
 
         self.label_01loss_values = []
@@ -213,7 +214,7 @@ class TMHMM3(openprotein.BaseModel):
             input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
             emissions, batch_sizes = self._get_network_emissions(input_sequences)
             output = torch.nn.functional.log_softmax(emissions, dim=2)
-            topologies = list([torch.stack(list([label for (idx, label) in label_list_to_topology(a+1)])) for a in labels_list])
+            topologies = list([torch.stack(list([label for (idx, label) in label_list_to_topology(a)])) for a in labels_list])
             targets, target_lengths = torch.nn.utils.rnn.pad_sequence(topologies).transpose(0,1), list([a.size()[0] for a in topologies])
             return self.ctc_loss(output, targets, tuple(batch_sizes), tuple(target_lengths))
         else:
@@ -274,17 +275,24 @@ class TMHMM3(openprotein.BaseModel):
     def forward(self, original_aa_string, forced_types=None):
         input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
         emissions, batch_sizes = self._get_network_emissions(input_sequences)
-        mask = self.batch_sizes_to_mask(batch_sizes)
-        labels_remapped = self.crfModel.decode(emissions, mask=mask)
-        predicted_labels = list(map(remapped_labels_to_orginal_labels, labels_remapped))
-        predicted_topologies = list(map(label_list_to_topology, predicted_labels))
-        if self.use_marg_prob:
-            marginal_probabilities = self.calculate_margin_probabilities(input_sequences).cpu()
-            predicted_types_tm = list(map(int, self.type_classier_tm.predict(marginal_probabilities)))
-            predicted_types_sp = list(map(int, self.type_classier_sp.predict(marginal_probabilities)))
-            predicted_types = list(map(get_type_from_tm_sp,zip(predicted_types_tm, predicted_types_sp)))
-        else:
+        if self.model_mode == TMHMM3Mode.LSTM_CTC:
+            output = torch.nn.functional.log_softmax(emissions, dim=2)
+            _, predicted_labels = output.max(dim=2)
+            predicted_labels = list([list(map(int,x[:batch_sizes[idx]])) for idx, x in enumerate(predicted_labels.transpose(0,1))])
             predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
+            predicted_topologies = list(map(label_list_to_topology, predicted_labels))
+        else:
+            mask = self.batch_sizes_to_mask(batch_sizes)
+            labels_remapped = self.crfModel.decode(emissions, mask=mask)
+            predicted_labels = list(map(remapped_labels_to_orginal_labels, labels_remapped))
+            predicted_topologies = list(map(label_list_to_topology, predicted_labels))
+            if self.use_marg_prob:
+                marginal_probabilities = self.calculate_margin_probabilities(input_sequences).cpu()
+                predicted_types_tm = list(map(int, self.type_classier_tm.predict(marginal_probabilities)))
+                predicted_types_sp = list(map(int, self.type_classier_sp.predict(marginal_probabilities)))
+                predicted_types = list(map(get_type_from_tm_sp,zip(predicted_types_tm, predicted_types_sp)))
+            else:
+                predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
         return predicted_labels, predicted_types if forced_types is None else forced_types, predicted_topologies
 
     def evaluate_model(self, data_loader):
@@ -299,7 +307,6 @@ class TMHMM3(openprotein.BaseModel):
 
             _, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name_list, original_aa_string = minibatch
             predicted_labels, predicted_types, predicted_topologies = self(original_aa_string)
-            start = time.time()
 
             for idx, actual_type in enumerate(prot_type_list):
                 predicted_type = predicted_types[idx]
@@ -308,9 +315,6 @@ class TMHMM3(openprotein.BaseModel):
             #    validation_label_loss_tracker.extend(
             #        [0 if predicted_label == labels_list[idx][idx2] else 1 for idx2, predicted_label in enumerate(predicted_labels[idx])])
                 validation_topology_loss_tracker.append(0 if is_topologies_equal(prot_topology_list[idx], predicted_topologies[idx], 5) else 1)
-
-            end = time.time()
-            write_out("M time", (end-start))
 
         for i in range(4):
             sum = int(confusion_matrix[i].sum())

@@ -29,15 +29,15 @@ parser.add_argument('--hide-ui', dest = 'hide_ui', action = 'store_true',
 parser.add_argument('--evaluate-on-test', dest = 'evaluate_on_test', action = 'store_true',
                     default=False, help='Run model of test data.')
 parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
-                    default=50, help='Evaluate model on validation set every n minibatches.')
+                    default=5, help='Evaluate model on validation set every n minibatches.')
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
-                    default=5000, help='Minimum number of minibatch iterations.')
+                    default=1000, help='Minimum number of minibatch iterations.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
                     default=50, help='Size of each minibatch.')
 parser.add_argument('--minibatch-size-validation', dest = 'minibatch_size_validation', type=int,
                     default=50, help='Size of each minibatch during evaluation.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
-                    default=0.001, help='Learning rate to use during training.')
+                    default=0.01, help='Learning rate to use during training.')
 args, unknown = parser.parse_known_args()
 
 if args.hide_ui:
@@ -90,7 +90,7 @@ print("Completed preprocessing of data...")
 train_loader = tm_contruct_dataloader_from_disk(train_preprocessed_set, args.minibatch_size, balance_classes=True)
 validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set, args.minibatch_size_validation)
 
-model_mode = TMHMM3Mode.LSTM_CRF_HMM
+model_mode = TMHMM3Mode.LSTM_CTC
 
 hidden_size = 128
 embedding = "BLOSUM62"
