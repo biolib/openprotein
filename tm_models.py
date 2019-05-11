@@ -46,6 +46,10 @@ class TMHMM3(openprotein.BaseModel):
         self.ctc_loss = nn.CTCLoss()
         crf_transitions_mask = torch.ones((num_tags, num_tags)).byte()
 
+        self.label_01loss_values = []
+        self.type_01loss_values = []
+        self.topology_01loss_values = []
+
         # if on GPU, move state to GPU memory
         if self.use_gpu:
             self.embedding_function = self.embedding_function.cuda()
@@ -201,7 +205,7 @@ class TMHMM3(openprotein.BaseModel):
         return self.last_reduced_mean
 
     def compute_loss(self, training_minibatch):
-        _, labels_list, remapped_labels_list, prot_type_list, prot_name_list, original_aa_string = training_minibatch
+        _, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name_list, original_aa_string = training_minibatch
         minibatch_size = len(labels_list)
         labels_to_use = remapped_labels_list if self.model_mode == TMHMM3Mode.LSTM_CRF_HMM else labels_list
         if self.model_mode == TMHMM3Mode.LSTM_CTC:
@@ -273,6 +277,7 @@ class TMHMM3(openprotein.BaseModel):
         mask = self.batch_sizes_to_mask(batch_sizes)
         labels_remapped = self.crfModel.decode(emissions, mask=mask)
         predicted_labels = list(map(remapped_labels_to_orginal_labels, labels_remapped))
+        predicted_topologies = list(map(label_list_to_topology, predicted_labels))
         if self.use_marg_prob:
             marginal_probabilities = self.calculate_margin_probabilities(input_sequences).cpu()
             predicted_types_tm = list(map(int, self.type_classier_tm.predict(marginal_probabilities)))
@@ -280,17 +285,53 @@ class TMHMM3(openprotein.BaseModel):
             predicted_types = list(map(get_type_from_tm_sp,zip(predicted_types_tm, predicted_types_sp)))
         else:
             predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
-        return predicted_labels, predicted_types if forced_types is None else forced_types
+        return predicted_labels, predicted_types if forced_types is None else forced_types, predicted_topologies
 
     def evaluate_model(self, data_loader):
         validation_loss_tracker = []
+        validation_type_loss_tracker = []
+        validation_label_loss_tracker = []
+        validation_topology_loss_tracker = []
+        confusion_matrix = np.zeros((4,4))
         for i, minibatch in enumerate(data_loader, 0):
             validation_loss_tracker.append(self.compute_loss(minibatch).detach())
-        loss = torch.stack(validation_loss_tracker).mean()
+
+
+            _, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name_list, original_aa_string = minibatch
+            predicted_labels, predicted_types, predicted_topologies = self(original_aa_string)
+            start = time.time()
+
+            for idx, actual_type in enumerate(prot_type_list):
+                predicted_type = predicted_types[idx]
+                validation_type_loss_tracker.append(0 if actual_type == predicted_type else 1)
+                confusion_matrix[actual_type][predicted_type] += 1.0
+            #    validation_label_loss_tracker.extend(
+            #        [0 if predicted_label == labels_list[idx][idx2] else 1 for idx2, predicted_label in enumerate(predicted_labels[idx])])
+                validation_topology_loss_tracker.append(0 if is_topologies_equal(prot_topology_list[idx], predicted_topologies[idx], 5) else 1)
+
+            end = time.time()
+            write_out("M time", (end-start))
+
+        for i in range(4):
+            sum = int(confusion_matrix[i].sum())
+            for k in range(4):
+                if sum != 0:
+                    confusion_matrix[i][k] /= sum
+                else:
+                    confusion_matrix[i][k] = math.nan
+        write_out(confusion_matrix)
+        loss = float(torch.stack(validation_loss_tracker).mean())
+
+        self.type_01loss_values.append(float(torch.FloatTensor(validation_type_loss_tracker).mean()))
+        #self.label_01loss_values.append(float(torch.FloatTensor(validation_label_loss_tracker).mean()))
+        self.topology_01loss_values.append(float(torch.FloatTensor(validation_topology_loss_tracker).mean()))
 
         data = {}
+        data['type_01loss_values'] = self.type_01loss_values
+        #data['label_01loss_values'] = self.label_01loss_values
+        data['topology_01loss_values'] = self.topology_01loss_values
 
-        return float(loss), data
+        return loss, data
 
 
 def is_sp(type_id):

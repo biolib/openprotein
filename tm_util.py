@@ -12,14 +12,16 @@ import math
 import random
 
 class TMDataset(Dataset):
-    def __init__(self, aa_list, label_list, remapped_labels_list, type_list, prot_name_list, original_aa_string_list):
+    def __init__(self, aa_list, label_list, remapped_labels_list, type_list, topology_list, prot_name_list, original_aa_string_list):
         assert len(aa_list) == len(label_list)
         assert len(aa_list) == len(remapped_labels_list)
         assert len(aa_list) == len(type_list)
+        assert len(aa_list) == len(topology_list)
         self.aa_list = aa_list
         self.label_list = label_list
         self.remapped_labels_list = remapped_labels_list
         self.type_list = type_list
+        self.topology_list = topology_list
         self.prot_name_list = prot_name_list
         self.original_aa_string_list = original_aa_string_list
 
@@ -28,6 +30,7 @@ class TMDataset(Dataset):
                self.label_list[index], \
                self.remapped_labels_list[index], \
                self.type_list[index], \
+               self.topology_list[index], \
                self.prot_name_list[index], \
                self.original_aa_string_list[index]
 
@@ -39,10 +42,10 @@ class TMDataset(Dataset):
         for s in samples:
             samples_list.append(s)
         # sort according to length of aa sequence
-        samples_list.sort(key=lambda x: len(x[5]), reverse=True)
-        aa_list, labels_list, remapped_labels_list, prot_type_list, prot_name, original_aa_string = zip(*samples_list)
+        samples_list.sort(key=lambda x: len(x[6]), reverse=True)
+        aa_list, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name, original_aa_string = zip(*samples_list)
         write_out(prot_type_list)
-        return aa_list, labels_list, remapped_labels_list, prot_type_list, prot_name, original_aa_string
+        return aa_list, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name, original_aa_string
 
     def from_disk(dataset, use_gpu, re_map_labels=True):
         print("Constructing data set from disk...")
@@ -50,6 +53,7 @@ class TMDataset(Dataset):
         labels_list = []
         remapped_labels_list = []
         prot_type_list = []
+        prot_topology_list_all = []
         prot_aa_list_all = []
         prot_name_list = []
         # sort according to length of aa sequence
@@ -122,7 +126,8 @@ class TMDataset(Dataset):
             labels_list.append(labels)
             remapped_labels_list.append(remapped_labels)
             prot_type_list.append(type_id)
-        return TMDataset(aa_list, labels_list, remapped_labels_list, prot_type_list, prot_name_list, prot_aa_list_all)
+            prot_topology_list_all.append(label_list_to_topology(labels))
+        return TMDataset(aa_list, labels_list, remapped_labels_list, prot_type_list, prot_topology_list_all, prot_name_list, prot_aa_list_all)
 
 
 def tm_contruct_dataloader_from_disk(tm_dataset, minibatch_size, balance_classes=False):
