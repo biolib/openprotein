@@ -38,6 +38,8 @@ parser.add_argument('--minibatch-size-validation', dest = 'minibatch_size_valida
                     default=50, help='Size of each minibatch during evaluation.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
                     default=0.01, help='Learning rate to use during training.')
+parser.add_argument('--run-on-test', dest = 'run_on_test', type=bool,
+                    default=False, help='Run trained model on the test set.')
 args, unknown = parser.parse_known_args()
 
 if args.hide_ui:
@@ -89,6 +91,11 @@ print("Completed preprocessing of data...")
 
 train_loader = tm_contruct_dataloader_from_disk(train_preprocessed_set, args.minibatch_size, balance_classes=True)
 validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set, args.minibatch_size_validation)
+test_loader = tm_contruct_dataloader_from_disk(test_preprocessed_set, args.minibatch_size_validation)
+
+train_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(train_preprocessed_set_TOPOLOGY, args.minibatch_size, balance_classes=False)
+validation_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(validation_preprocessed_set_TOPOLOGY, args.minibatch_size_validation)
+test_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(test_preprocessed_set_TOPOLOGY, args.minibatch_size_validation)
 
 model_mode = TMHMM3Mode.LSTM_CTC
 
@@ -122,23 +129,41 @@ else:
 #    hmm_state_graph.edge(str(a), str(b))
 #hmm_state_graph.render('output/hmm-states.gv', view=False)
 
-model = TMHMM3(
-    embedding,
-    hidden_size,
-    use_gpu,
-    model_mode,
-    use_marg_prob,
-    allowed_transitions)
+type_predictor_model = None
 
-train_model_path = train_model(data_set_identifier="TRAIN",
-                               model=model,
-                               train_loader=train_loader,
-                               validation_loader=validation_loader,
-                               learning_rate=args.learning_rate,
-                               minibatch_size=args.minibatch_size,
-                               eval_interval=args.eval_interval,
-                               hide_ui=args.hide_ui,
-                               use_gpu=use_gpu,
-                               minimum_updates=args.minimum_updates)
+for (experiment_id, train_data, validation_data, test_data) in [
+    ("TRAIN_TYPE", train_loader, validation_loader, test_loader),
+    ("TRAIN_TOPOLOGY", train_loader_TOPOLOGY, validation_loader_TOPOLOGY, test_loader_TOPOLOGY)]:
 
-print(train_model_path)
+    model = TMHMM3(
+        embedding,
+        hidden_size,
+        use_gpu,
+        model_mode,
+        use_marg_prob,
+        allowed_transitions,
+        type_predictor_model)
+
+    model_path = train_model(data_set_identifier=experiment_id,
+                             model=model,
+                             train_loader=train_data,
+                             validation_loader=validation_data,
+                             learning_rate=args.learning_rate,
+                             minibatch_size=args.minibatch_size,
+                             eval_interval=args.eval_interval,
+                             hide_ui=args.hide_ui,
+                             use_gpu=use_gpu,
+                             minimum_updates=args.minimum_updates)
+
+    write_out(model_path)
+
+    # test model
+    if args.run_on_test:
+        write_out("Testing model of test set...")
+        loss, data = model.evaluate_model(test_data)
+        write_out(data)
+
+    # if we just trained a type predictor, save it for later
+    if experiment_id == "TRAIN_TYPE":
+        type_predictor_model = model
+

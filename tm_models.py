@@ -20,7 +20,7 @@ from enum import Enum
 torch.manual_seed(1)
 
 class TMHMM3(openprotein.BaseModel):
-    def __init__(self, embedding, hidden_size, use_gpu, model_mode, use_marg_prob, allowed_transitions):
+    def __init__(self, embedding, hidden_size, use_gpu, model_mode, use_marg_prob, allowed_transitions, type_predictor_model):
         super(TMHMM3, self).__init__(embedding, use_gpu)
 
         # initialize model variables
@@ -41,7 +41,7 @@ class TMHMM3(openprotein.BaseModel):
         self.hidden_to_labels = nn.Linear(self.hidden_size * 2, num_labels) # * 2 for bidirectional
         self.allowed_transitions = allowed_transitions
         self.crfModel = CRF(num_tags)
-        self.type_classier = None
+        self.type_classier = type_predictor_model
         self.type_tm_classier = None
         self.type_sp_classier = None
         self.ctc_loss = nn.CTCLoss(blank=5)
@@ -308,13 +308,17 @@ class TMHMM3(openprotein.BaseModel):
             _, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name_list, original_aa_string = minibatch
             predicted_labels, predicted_types, predicted_topologies = self(original_aa_string)
 
+            # if we're using an external type predictor
+            if self.type_classier is not None:
+                _, predicted_types, _ = self.type_classier(original_aa_string)
+
             for idx, actual_type in enumerate(prot_type_list):
                 predicted_type = predicted_types[idx]
                 validation_type_loss_tracker.append(0 if actual_type == predicted_type else 1)
                 confusion_matrix[actual_type][predicted_type] += 1.0
             #    validation_label_loss_tracker.extend(
             #        [0 if predicted_label == labels_list[idx][idx2] else 1 for idx2, predicted_label in enumerate(predicted_labels[idx])])
-                validation_topology_loss_tracker.append(0 if is_topologies_equal(prot_topology_list[idx], predicted_topologies[idx], 5) else 1)
+                validation_topology_loss_tracker.append(0 if actual_type == predicted_type and is_topologies_equal(prot_topology_list[idx], predicted_topologies[idx], 5) else 1)
 
         for i in range(4):
             sum = int(confusion_matrix[i].sum())
@@ -334,6 +338,8 @@ class TMHMM3(openprotein.BaseModel):
         data['type_01loss_values'] = self.type_01loss_values
         #data['label_01loss_values'] = self.label_01loss_values
         data['topology_01loss_values'] = self.topology_01loss_values
+
+        write_out(data)
 
         return loss, data
 
