@@ -53,12 +53,12 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
 
                 train_loss = loss_tracker.mean()
                 loss_tracker = np.zeros(0)
-                validation_loss, json_data = model.evaluate_model(validation_loader)
+                validation_loss, json_data, prediction_data = model.evaluate_model(validation_loader)
 
                 if validation_loss < best_model_loss:
                     best_model_loss = validation_loss
                     best_model_minibatch_time = minibatches_proccesed
-                    best_model_path = write_model_to_disk(model)
+                    best_model_path = write_model_and_data_to_disk(model, prediction_data)
 
                 write_out("Validation loss:", validation_loss, "Train loss:", train_loss)
                 write_out("Best model so far (validation loss): ", best_model_loss, "at time", best_model_minibatch_time)

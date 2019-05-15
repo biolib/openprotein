@@ -301,12 +301,19 @@ class TMHMM3(openprotein.BaseModel):
         validation_label_loss_tracker = []
         validation_topology_loss_tracker = []
         confusion_matrix = np.zeros((4,4))
+        protein_names = []
+        protein_aa_strings = []
+        protein_label_prediction = []
         for i, minibatch in enumerate(data_loader, 0):
             validation_loss_tracker.append(self.compute_loss(minibatch).detach())
 
 
             _, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name_list, original_aa_string = minibatch
             predicted_labels, predicted_types, predicted_topologies = self(original_aa_string)
+
+            protein_names.extend(prot_name_list)
+            protein_aa_strings.extend(original_aa_string)
+            protein_label_prediction.extend(predicted_labels)
 
             # if we're using an external type predictor
             if self.type_classier is not None:
@@ -341,7 +348,7 @@ class TMHMM3(openprotein.BaseModel):
 
         write_out(data)
 
-        return loss, data
+        return loss, data, (prot_name_list, protein_aa_strings, protein_label_prediction)
 
 
 def is_sp(type_id):

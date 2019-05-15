@@ -14,6 +14,7 @@ import math
 import numpy as np
 import time
 import pnerf.pnerf as pnerf
+import json
 
 AA_ID_DICT = {'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 8, 'K': 9,
               'L': 10, 'M': 11, 'N': 12, 'P': 13, 'Q': 14, 'R': 15, 'S': 16, 'T': 17,
@@ -67,6 +68,14 @@ def write_model_to_disk(model):
     path = "output/models/"+globals().get("experiment_id")+".model"
     torch.save(model,path)
     return path
+
+
+def write_model_and_data_to_disk(model, prediction_data):
+    filepath = "output/predictions/"+globals().get("experiment_id")+".txt"
+    output_file = open(filepath, 'w')
+    output_file.write(json.dumps(prediction_data))
+    output_file.close()
+    return write_model_to_disk(model)
 
 def draw_plot(fig, plt, validation_dataset_size, sample_num, train_loss_values,
               validation_loss_values):
