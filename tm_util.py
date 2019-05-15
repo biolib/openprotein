@@ -12,7 +12,7 @@ import math
 import random
 
 class TMDataset(Dataset):
-    def __init__(self, aa_list, label_list, remapped_labels_list, type_list, topology_list, prot_name_list, original_aa_string_list):
+    def __init__(self, aa_list, label_list, remapped_labels_list, type_list, topology_list, prot_name_list, original_aa_string_list, original_label_string):
         assert len(aa_list) == len(label_list)
         assert len(aa_list) == len(remapped_labels_list)
         assert len(aa_list) == len(type_list)
@@ -24,6 +24,7 @@ class TMDataset(Dataset):
         self.topology_list = topology_list
         self.prot_name_list = prot_name_list
         self.original_aa_string_list = original_aa_string_list
+        self.original_label_string = original_label_string
 
     def __getitem__(self, index):
         return self.aa_list[index], \
@@ -32,7 +33,8 @@ class TMDataset(Dataset):
                self.type_list[index], \
                self.topology_list[index], \
                self.prot_name_list[index], \
-               self.original_aa_string_list[index]
+               self.original_aa_string_list[index], \
+               self.original_label_string[index]
 
     def __len__(self):
         return len(self.aa_list)
@@ -43,9 +45,9 @@ class TMDataset(Dataset):
             samples_list.append(s)
         # sort according to length of aa sequence
         samples_list.sort(key=lambda x: len(x[6]), reverse=True)
-        aa_list, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name, original_aa_string = zip(*samples_list)
+        aa_list, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name, original_aa_string, original_label_string = zip(*samples_list)
         write_out(prot_type_list)
-        return aa_list, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name, original_aa_string
+        return aa_list, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name, original_aa_string, original_label_string
 
     def from_disk(dataset, use_gpu, re_map_labels=True):
         print("Constructing data set from disk...")
@@ -55,19 +57,21 @@ class TMDataset(Dataset):
         prot_type_list = []
         prot_topology_list_all = []
         prot_aa_list_all = []
+        prot_labels_list_all = []
         prot_name_list = []
         # sort according to length of aa sequence
         dataset.sort(key=lambda x: len(x[1]), reverse=True)
-        for prot_name, prot_aa_list, prot_topology_list, type_id, cluster_id in dataset:
+        for prot_name, prot_aa_list, prot_original_label_list, type_id, cluster_id in dataset:
             prot_name_list.append(prot_name)
             prot_aa_list_all.append(prot_aa_list)
+            prot_labels_list_all.append(prot_original_label_list)
             aa_tmp_list_tensor = []
             labels = None
             remapped_labels = None
             last_non_membrane_position = None
-            if prot_topology_list is not None:
+            if prot_original_label_list is not None:
                 labels = []
-                for topology_label in prot_topology_list:
+                for topology_label in prot_original_label_list:
                     if topology_label is "L":
                         topology_label = "I"
                     if topology_label is "I":
@@ -127,7 +131,7 @@ class TMDataset(Dataset):
             remapped_labels_list.append(remapped_labels)
             prot_type_list.append(type_id)
             prot_topology_list_all.append(label_list_to_topology(labels))
-        return TMDataset(aa_list, labels_list, remapped_labels_list, prot_type_list, prot_topology_list_all, prot_name_list, prot_aa_list_all)
+        return TMDataset(aa_list, labels_list, remapped_labels_list, prot_type_list, prot_topology_list_all, prot_name_list, prot_aa_list_all, prot_labels_list_all)
 
 
 def tm_contruct_dataloader_from_disk(tm_dataset, minibatch_size, balance_classes=False):
@@ -264,6 +268,8 @@ def orginal_labels_to_fasta(label_list):
             sequence = sequence + "I"
         if label == 4:
             sequence = sequence + "O"
+        if label == 5:
+            sequence = sequence + "-"
     return sequence
 
 def get_predicted_type_from_labels(labels):

@@ -206,7 +206,7 @@ class TMHMM3(openprotein.BaseModel):
         return self.last_reduced_mean
 
     def compute_loss(self, training_minibatch):
-        _, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name_list, original_aa_string = training_minibatch
+        _, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name_list, original_aa_string, original_label_string = training_minibatch
         minibatch_size = len(labels_list)
         labels_to_use = remapped_labels_list if self.model_mode == TMHMM3Mode.LSTM_CRF_HMM else labels_list
         if self.model_mode == TMHMM3Mode.LSTM_CTC:
@@ -303,16 +303,18 @@ class TMHMM3(openprotein.BaseModel):
         confusion_matrix = np.zeros((4,4))
         protein_names = []
         protein_aa_strings = []
+        protein_label_actual = []
         protein_label_prediction = []
         for i, minibatch in enumerate(data_loader, 0):
             validation_loss_tracker.append(self.compute_loss(minibatch).detach())
 
 
-            _, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name_list, original_aa_string = minibatch
+            _, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name_list, original_aa_string, original_label_string = minibatch
             predicted_labels, predicted_types, predicted_topologies = self(original_aa_string)
 
             protein_names.extend(prot_name_list)
             protein_aa_strings.extend(original_aa_string)
+            protein_label_actual.extend(original_label_string)
             protein_label_prediction.extend(predicted_labels)
 
             # if we're using an external type predictor
@@ -348,7 +350,16 @@ class TMHMM3(openprotein.BaseModel):
 
         write_out(data)
 
-        return loss, data, (prot_name_list, protein_aa_strings, protein_label_prediction)
+        return loss, data, (protein_names, protein_aa_strings, protein_label_actual, protein_label_prediction)
+
+    def post_process_prediction_data(self, prediction_data):
+        data = []
+        for (name, aa_string, actual, prediction) in zip(*prediction_data):
+            data.append("\n".join([name,aa_string,actual,orginal_labels_to_fasta(prediction)]))
+        return "\n".join(data)
+
+
+
 
 
 def is_sp(type_id):
