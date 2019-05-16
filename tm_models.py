@@ -355,7 +355,7 @@ class TMHMM3(openprotein.BaseModel):
     def post_process_prediction_data(self, prediction_data):
         data = []
         for (name, aa_string, actual, prediction) in zip(*prediction_data):
-            data.append("\n".join([name,aa_string,actual,orginal_labels_to_fasta(prediction)]))
+            data.append("\n".join([">" + name,aa_string,actual,orginal_labels_to_fasta(prediction)]))
         return "\n".join(data)
 
 

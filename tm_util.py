@@ -399,7 +399,7 @@ def calculate_partitions(n_partitions, cluster_partitions, types):
     write_out(partition_distribution.astype(np.int32)-np.ones(partition_distribution.shape).astype(np.int32))
     return partition_assignments.astype(np.int32)
 
-def load_data_from_disk():
+def load_data_from_disk(partition_rotation=0):
     print("Loading data from disk...")
     data = parse_datafile_from_disk('data/raw/TMHMM3.train.3line.clstr20')
     data_unzipped = list(zip(*data))
@@ -409,9 +409,11 @@ def load_data_from_disk():
     val_set = []
     test_set = []
     for idx, sample in enumerate(data):
-        if int(partitions[idx]) <= 2:
+        partition = int(partitions[idx]) # in range 0-4
+        rotated = (partition + partition_rotation) % 5
+        if int(rotated) <= 2:
             train_set.append(sample)
-        elif int(partitions[idx]) == 3:
+        elif int(rotated) == 3:
             val_set.append(sample)
         else:
             test_set.append(sample)

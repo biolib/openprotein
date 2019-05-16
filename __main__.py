@@ -40,6 +40,8 @@ parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
                     default=0.01, help='Learning rate to use during training.')
 parser.add_argument('--run-on-test', dest = 'run_on_test', type=bool,
                     default=False, help='Run trained model on the test set.')
+parser.add_argument('--cv-partition', dest = 'cv_partition', type=int,
+                    default=0, help='Run a particular cross validation rotation.')
 args, unknown = parser.parse_known_args()
 
 if args.hide_ui:
@@ -63,7 +65,7 @@ if not args.hide_ui:
 #validation_loader = contruct_dataloader_from_disk(validation_file, args.minibatch_size)
 
 # prepare data sets
-train_set, val_set, test_set = load_data_from_disk()
+train_set, val_set, test_set = load_data_from_disk(partition_rotation=args.cv_partition)
 
 # topology data set
 train_set_TOPOLOGY = list(filter(lambda x: x[3] is 0 or x[3] is 1, train_set))
@@ -77,10 +79,11 @@ if not args.silent:
           len(test_set),"test samples")
 
 print("Processing data...")
-if not os.path.isfile('data/preprocessed/preprocessed_data.pickle'):
+pre_processed_path = "data/preprocessed/preprocessed_data_cv"+str(args.cv_partition)+".pickle"
+if not os.path.isfile(pre_processed_path):
     input_data_processed = list([TMDataset.from_disk(set, use_gpu) for set in [train_set, val_set, test_set, train_set_TOPOLOGY, val_set_TOPOLOGY, test_set_TOPOLOGY]])
-    pickle.dump( input_data_processed, open("data/preprocessed/preprocessed_data.pickle", "wb"))
-input_data_processed = pickle.load(open("data/preprocessed/preprocessed_data.pickle", "rb"))
+    pickle.dump( input_data_processed, open(pre_processed_path, "wb"))
+input_data_processed = pickle.load(open(pre_processed_path, "rb"))
 train_preprocessed_set = input_data_processed[0]
 validation_preprocessed_set = input_data_processed[1]
 test_preprocessed_set = input_data_processed[2]
@@ -132,8 +135,8 @@ else:
 type_predictor_model = None
 
 for (experiment_id, train_data, validation_data, test_data) in [
-    ("TRAIN_TYPE", train_loader, validation_loader, test_loader),
-    ("TRAIN_TOPOLOGY", train_loader_TOPOLOGY, validation_loader_TOPOLOGY, test_loader_TOPOLOGY)]:
+    ("TRAIN_TYPE_CV"+str(args.cv_partition), train_loader, validation_loader, test_loader),
+    ("TRAIN_TOPOLOGY_CV"+str(args.cv_partition), train_loader_TOPOLOGY, validation_loader_TOPOLOGY, test_loader_TOPOLOGY)]:
 
     model = TMHMM3(
         embedding,
