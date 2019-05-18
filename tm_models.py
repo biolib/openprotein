@@ -13,6 +13,7 @@ import tensorflow as tf
 
 import openprotein
 from tm_util import *
+from util import write_result_summary
 from sklearn.ensemble import RandomForestClassifier
 from enum import Enum
 
@@ -20,7 +21,7 @@ from enum import Enum
 torch.manual_seed(1)
 
 class TMHMM3(openprotein.BaseModel):
-    def __init__(self, embedding, hidden_size, use_gpu, model_mode, use_marg_prob, allowed_transitions, type_predictor_model):
+    def __init__(self, embedding, hidden_size, use_gpu, model_mode, use_marg_prob, type_predictor_model):
         super(TMHMM3, self).__init__(embedding, use_gpu)
 
         # initialize model variables
@@ -39,9 +40,29 @@ class TMHMM3(openprotein.BaseModel):
         self.embedding_function = nn.Embedding(24, self.get_embedding_size())
         self.bi_lstm = nn.LSTM(self.get_embedding_size(), self.hidden_size, num_layers=1, bidirectional=True)
         self.hidden_to_labels = nn.Linear(self.hidden_size * 2, num_labels) # * 2 for bidirectional
+        if model_mode == TMHMM3Mode.LSTM_CRF_HMM:
+            allowed_transitions = [
+                (2, 2), (3, 3), (4, 4),
+                (3, 5), (4, 45),
+                (2, 5), (2, 45), (2, 3), (2, 4)]
+            for i in range(5, 45 - 1):
+                allowed_transitions.append((i, i + 1))
+                if i > 8 and i < 43:
+                    allowed_transitions.append((8, i))
+            allowed_transitions.append((44, 4))
+            for i in range(45, 85 - 1):
+                allowed_transitions.append((i, i + 1))
+                if i > 48 and i < 83:
+                    allowed_transitions.append((48, i))
+            allowed_transitions.append((84, 3))
+        else:
+            allowed_transitions = [
+                (0, 0), (1, 1), (2, 2), (3, 3), (4, 4),
+                (3, 0), (0, 4), (4, 1), (1, 3),
+                (2, 0), (2, 1), (2, 3), (2, 4)]
         self.allowed_transitions = allowed_transitions
         self.crfModel = CRF(num_tags)
-        self.type_classier = type_predictor_model
+        self.type_classifier = type_predictor_model
         self.type_tm_classier = None
         self.type_sp_classier = None
         self.ctc_loss = nn.CTCLoss(blank=5)
@@ -298,9 +319,8 @@ class TMHMM3(openprotein.BaseModel):
     def evaluate_model(self, data_loader):
         validation_loss_tracker = []
         validation_type_loss_tracker = []
-        validation_label_loss_tracker = []
         validation_topology_loss_tracker = []
-        confusion_matrix = np.zeros((4,4))
+        confusion_matrix = np.zeros((5,5), dtype=np.int64)
         protein_names = []
         protein_aa_strings = []
         protein_label_actual = []
@@ -315,46 +335,53 @@ class TMHMM3(openprotein.BaseModel):
             protein_names.extend(prot_name_list)
             protein_aa_strings.extend(original_aa_string)
             protein_label_actual.extend(original_label_string)
-            protein_label_prediction.extend(predicted_labels)
 
             # if we're using an external type predictor
-            if self.type_classier is not None:
-                _, predicted_types, _ = self.type_classier(original_aa_string)
+            if self.type_classifier is not None:
+                predicted_labels_type_classifer, predicted_types, _ = self.type_classifier(original_aa_string)
 
             for idx, actual_type in enumerate(prot_type_list):
                 predicted_type = predicted_types[idx]
-                validation_type_loss_tracker.append(0 if actual_type == predicted_type else 1)
-                confusion_matrix[actual_type][predicted_type] += 1.0
-            #    validation_label_loss_tracker.extend(
-            #        [0 if predicted_label == labels_list[idx][idx2] else 1 for idx2, predicted_label in enumerate(predicted_labels[idx])])
-                validation_topology_loss_tracker.append(0 if actual_type == predicted_type and is_topologies_equal(prot_topology_list[idx], predicted_topologies[idx], 5) else 1)
-
-        for i in range(4):
-            sum = int(confusion_matrix[i].sum())
-            for k in range(4):
-                if sum != 0:
-                    confusion_matrix[i][k] /= sum
+                prediction_topology_match = is_topologies_equal(prot_topology_list[idx], predicted_topologies[idx], 5)
+                if actual_type == predicted_type:
+                    validation_type_loss_tracker.append(0)
+                    # if we guessed the type right for SP+GLOB or GLOB, we count the topology as correct
+                    if actual_type == 2 or actual_type == 3 or prediction_topology_match:
+                        validation_topology_loss_tracker.append(0)
+                        confusion_matrix[actual_type][4] += 1
+                    else:
+                        validation_topology_loss_tracker.append(1)
+                        confusion_matrix[actual_type][predicted_type] += 1
+                    protein_label_prediction.append(predicted_labels[idx])
                 else:
-                    confusion_matrix[i][k] = math.nan
+                    confusion_matrix[actual_type][predicted_type] += 1
+                    validation_type_loss_tracker.append(1)
+                    validation_topology_loss_tracker.append(1)
+                    if self.type_classifier is not None:
+                        # if the type prediction is wrong, we must use labels predicted by type predictor if available
+                        protein_label_prediction.append(predicted_labels_type_classifer[idx])
+                        if prediction_topology_match:
+                            confusion_matrix[4][actual_type] += 1
+                    else:
+                        protein_label_prediction.append(predicted_labels[idx])
+
         write_out(confusion_matrix)
         loss = float(torch.stack(validation_loss_tracker).mean())
 
-        self.type_01loss_values.append(float(torch.FloatTensor(validation_type_loss_tracker).mean()))
-        #self.label_01loss_values.append(float(torch.FloatTensor(validation_label_loss_tracker).mean()))
-        self.topology_01loss_values.append(float(torch.FloatTensor(validation_topology_loss_tracker).mean()))
+        self.type_01loss_values.append(float(torch.FloatTensor(validation_type_loss_tracker).mean().detach()))
+        self.topology_01loss_values.append(float(torch.FloatTensor(validation_topology_loss_tracker).mean().detach()))
 
         data = {}
         data['type_01loss_values'] = self.type_01loss_values
-        #data['label_01loss_values'] = self.label_01loss_values
         data['topology_01loss_values'] = self.topology_01loss_values
 
         write_out(data)
 
-        return loss, data, (protein_names, protein_aa_strings, protein_label_actual, protein_label_prediction)
+        return loss, data, [(protein_names, protein_aa_strings, protein_label_actual, protein_label_prediction),confusion_matrix]
 
     def post_process_prediction_data(self, prediction_data):
         data = []
-        for (name, aa_string, actual, prediction) in zip(*prediction_data):
+        for (name, aa_string, actual, prediction) in zip(*prediction_data[0]):
             data.append("\n".join([">" + name,aa_string,actual,orginal_labels_to_fasta(prediction)]))
         return "\n".join(data)
 

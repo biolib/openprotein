@@ -14,7 +14,7 @@ from models import *
 import os
 from tm_models import *
 from tm_util import *
-from util import write_out
+from util import write_out, set_experiment_id
 from training import train_model
 
 print("------------------------")
@@ -29,17 +29,17 @@ parser.add_argument('--hide-ui', dest = 'hide_ui', action = 'store_true',
 parser.add_argument('--evaluate-on-test', dest = 'evaluate_on_test', action = 'store_true',
                     default=False, help='Run model of test data.')
 parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
-                    default=50, help='Evaluate model on validation set every n minibatches.')
+                    default=25, help='Evaluate model on validation set every n minibatches.')
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
-                    default=1000, help='Minimum number of minibatch iterations.')
+                    default=10, help='Minimum number of minibatch iterations.')
+parser.add_argument('--hidden-size', dest = 'hidden_size', type=int,
+                    default=128, help='Hidden size.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
                     default=50, help='Size of each minibatch.')
 parser.add_argument('--minibatch-size-validation', dest = 'minibatch_size_validation', type=int,
                     default=50, help='Size of each minibatch during evaluation.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
                     default=0.01, help='Learning rate to use during training.')
-parser.add_argument('--run-on-test', dest = 'run_on_test', type=bool,
-                    default=False, help='Run trained model on the test set.')
 parser.add_argument('--cv-partition', dest = 'cv_partition', type=int,
                     default=0, help='Run a particular cross validation rotation.')
 args, unknown = parser.parse_known_args()
@@ -56,117 +56,97 @@ if not args.hide_ui:
     # start web server
     start_dashboard_server()
 
-#process_raw_data(use_gpu, force_pre_processing_overwrite=False)
-
-#training_file = "data/preprocessed/sample.txt.hdf5"
-#validation_file = "data/preprocessed/sample.txt.hdf5"
-#testing_file = "data/preprocessed/testing.hdf5"
-#train_loader = contruct_dataloader_from_disk(training_file, args.minibatch_size)
-#validation_loader = contruct_dataloader_from_disk(validation_file, args.minibatch_size)
-
-# prepare data sets
-train_set, val_set, test_set = load_data_from_disk(partition_rotation=args.cv_partition)
-
-# topology data set
-train_set_TOPOLOGY = list(filter(lambda x: x[3] is 0 or x[3] is 1, train_set))
-val_set_TOPOLOGY = list(filter(lambda x: x[3] is 0 or x[3] is 1, val_set))
-test_set_TOPOLOGY = list(filter(lambda x: x[3] is 0 or x[3] is 1, test_set))
-
-if not args.silent:
-    print("Loaded ",
-          len(train_set),"training,",
-          len(val_set),"validation and",
-          len(test_set),"test samples")
-
-print("Processing data...")
-pre_processed_path = "data/preprocessed/preprocessed_data_cv"+str(args.cv_partition)+".pickle"
-if not os.path.isfile(pre_processed_path):
-    input_data_processed = list([TMDataset.from_disk(set, use_gpu) for set in [train_set, val_set, test_set, train_set_TOPOLOGY, val_set_TOPOLOGY, test_set_TOPOLOGY]])
-    pickle.dump( input_data_processed, open(pre_processed_path, "wb"))
-input_data_processed = pickle.load(open(pre_processed_path, "rb"))
-train_preprocessed_set = input_data_processed[0]
-validation_preprocessed_set = input_data_processed[1]
-test_preprocessed_set = input_data_processed[2]
-train_preprocessed_set_TOPOLOGY = input_data_processed[3]
-validation_preprocessed_set_TOPOLOGY = input_data_processed[4]
-test_preprocessed_set_TOPOLOGY = input_data_processed[5]
-print("Completed preprocessing of data...")
-
-train_loader = tm_contruct_dataloader_from_disk(train_preprocessed_set, args.minibatch_size, balance_classes=True)
-validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set, args.minibatch_size_validation)
-test_loader = tm_contruct_dataloader_from_disk(test_preprocessed_set, args.minibatch_size_validation)
-
-train_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(train_preprocessed_set_TOPOLOGY, args.minibatch_size, balance_classes=False)
-validation_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(validation_preprocessed_set_TOPOLOGY, args.minibatch_size_validation)
-test_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(test_preprocessed_set_TOPOLOGY, args.minibatch_size_validation)
-
+result_matrices = np.zeros((5,5), dtype=np.int64)
 model_mode = TMHMM3Mode.LSTM_CRF_HMM
 
-hidden_size = 128
 embedding = "BLOSUM62"
 use_marg_prob = False
 
-if model_mode == TMHMM3Mode.LSTM_CRF_HMM:
-    allowed_transitions = [
-        (2, 2), (3, 3), (4, 4),
-        (3, 5), (4, 45),
-        (2, 5), (2, 45), (2, 3), (2, 4)]
-    for i in range(5, 45 - 1):
-        allowed_transitions.append((i, i + 1))
-        if i > 8 and i < 43:
-            allowed_transitions.append((8, i))
-    allowed_transitions.append((44, 4))
-    for i in range(45, 85 - 1):
-        allowed_transitions.append((i, i + 1))
-        if i > 48 and i < 83:
-            allowed_transitions.append((48, i))
-    allowed_transitions.append((84, 3))
-else:
-    allowed_transitions = [
-        (0, 0), (1, 1), (2, 2), (3, 3), (4, 4),
-        (3, 0), (0, 4), (4, 1), (1, 3),
-        (2, 0), (2, 1), (2, 3), (2, 4)]
+for cv_partition in [0, 1, 2, 3, 4]:
+    # prepare data sets
+    train_set, val_set, test_set = load_data_from_disk(partition_rotation=cv_partition)
 
-#hmm_state_graph = Digraph(comment='HMM States')
-#for (a, b) in allowed_transitions:
-#    hmm_state_graph.edge(str(a), str(b))
-#hmm_state_graph.render('output/hmm-states.gv', view=False)
+    # topology data set
+    train_set_TOPOLOGY = list(filter(lambda x: x[3] is 0 or x[3] is 1, train_set))
+    val_set_TOPOLOGY = list(filter(lambda x: x[3] is 0 or x[3] is 1, val_set))
+    test_set_TOPOLOGY = list(filter(lambda x: x[3] is 0 or x[3] is 1, test_set))
 
-type_predictor_model = None
+    if not args.silent:
+        print("Loaded ",
+              len(train_set),"training,",
+              len(val_set),"validation and",
+              len(test_set),"test samples")
 
-for (experiment_id, train_data, validation_data, test_data) in [
-    ("TRAIN_TYPE_CV"+str(args.cv_partition), train_loader, validation_loader, test_loader),
-    ("TRAIN_TOPOLOGY_CV"+str(args.cv_partition), train_loader_TOPOLOGY, validation_loader_TOPOLOGY, test_loader_TOPOLOGY)]:
+    print("Processing data...")
+    pre_processed_path = "data/preprocessed/preprocessed_data_cv"+str(cv_partition)+".pickle"
+    if not os.path.isfile(pre_processed_path):
+        input_data_processed = list([TMDataset.from_disk(set, use_gpu) for set in [train_set, val_set, test_set, train_set_TOPOLOGY, val_set_TOPOLOGY, test_set_TOPOLOGY]])
+        pickle.dump( input_data_processed, open(pre_processed_path, "wb"))
+    input_data_processed = pickle.load(open(pre_processed_path, "rb"))
+    train_preprocessed_set = input_data_processed[0]
+    validation_preprocessed_set = input_data_processed[1]
+    test_preprocessed_set = input_data_processed[2]
+    train_preprocessed_set_TOPOLOGY = input_data_processed[3]
+    validation_preprocessed_set_TOPOLOGY = input_data_processed[4]
+    test_preprocessed_set_TOPOLOGY = input_data_processed[5]
+    print("Completed preprocessing of data...")
 
-    model = TMHMM3(
-        embedding,
-        hidden_size,
-        use_gpu,
-        model_mode,
-        use_marg_prob,
-        allowed_transitions,
-        type_predictor_model)
+    train_loader = tm_contruct_dataloader_from_disk(train_preprocessed_set, args.minibatch_size, balance_classes=True)
+    validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set, args.minibatch_size_validation)
+    test_loader = tm_contruct_dataloader_from_disk(test_preprocessed_set, args.minibatch_size_validation)
 
-    model_path = train_model(data_set_identifier=experiment_id,
-                             model=model,
-                             train_loader=train_data,
-                             validation_loader=validation_data,
-                             learning_rate=args.learning_rate,
-                             minibatch_size=args.minibatch_size,
-                             eval_interval=args.eval_interval,
-                             hide_ui=args.hide_ui,
-                             use_gpu=use_gpu,
-                             minimum_updates=args.minimum_updates)
+    train_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(train_preprocessed_set_TOPOLOGY, args.minibatch_size, balance_classes=False)
+    validation_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(validation_preprocessed_set_TOPOLOGY, args.minibatch_size_validation)
+    test_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(test_preprocessed_set_TOPOLOGY, args.minibatch_size_validation)
 
-    write_out(model_path)
+    type_predictor_model_path = None
+
+    for (experiment_id, train_data, validation_data, test_data) in [
+        ("TRAIN_TYPE_CV"+str(cv_partition)+"-" + str(model_mode)+"-HS" + str(args.hidden_size), train_loader, validation_loader, test_loader),
+        ("TRAIN_TOPOLOGY_CV"+str(cv_partition)+"-" + str(model_mode)+"-HS" + str(args.hidden_size), train_loader_TOPOLOGY, validation_loader_TOPOLOGY, test_loader_TOPOLOGY)]:
+
+        type_predictor = None
+        if type_predictor_model_path is not None:
+            type_predictor = load_model_from_disk(type_predictor_model_path, force_cpu=False)
+
+        model = TMHMM3(
+            embedding,
+            args.hidden_size,
+            use_gpu,
+            model_mode,
+            use_marg_prob,
+            type_predictor)
+
+        model_path = train_model(data_set_identifier=experiment_id,
+                                 model=model,
+                                 train_loader=train_data,
+                                 validation_loader=validation_data,
+                                 learning_rate=args.learning_rate,
+                                 minibatch_size=args.minibatch_size,
+                                 eval_interval=args.eval_interval,
+                                 hide_ui=args.hide_ui,
+                                 use_gpu=use_gpu,
+                                 minimum_updates=args.minimum_updates)
+
+        # let the GC collect the model
+        del model
+
+        write_out(model_path)
+
+        # if we just trained a type predictor, save it for later
+        if "TRAIN_TYPE" in experiment_id:
+            type_predictor_model_path = model_path
 
     # test model
-    if args.run_on_test:
+    if args.evaluate_on_test:
         write_out("Testing model of test set...")
-        loss, data = model.evaluate_model(test_data)
-        write_out(data)
+        model = load_model_from_disk(model_path, force_cpu=False)
+        loss, json_data, prediction_data = model.evaluate_model(validation_loader)
 
-    # if we just trained a type predictor, save it for later
-    if experiment_id == "TRAIN_TYPE":
-        type_predictor_model = model
+        write_prediction_data_to_disk(model.post_process_prediction_data(prediction_data))
+        result_matrix = prediction_data[1]
+        result_matrices += result_matrix
+        write_out(result_matrix)
 
+set_experiment_id("TEST-" + str(model_mode)+"-HS" + str(args.hidden_size), args.learning_rate, args.minibatch_size)
+write_out(result_matrices)

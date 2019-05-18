@@ -424,14 +424,13 @@ def load_data_from_disk(partition_rotation=0):
           len(test_set), "test set")
     return train_set, val_set, test_set
 
-def set_experiment_id(data_set_identifier, use_hmm_model, learning_rate, minibatch_size,hidden_size):
+def set_experiment_id(data_set_identifier, mode, learning_rate, minibatch_size,hidden_size):
     output_string = datetime.now().strftime('%Y-%m-%d_%H_%M_%S')
     output_string += "-" + data_set_identifier
     output_string += "-LR" + str(learning_rate).replace(".","_")
     output_string += "-MB" + str(minibatch_size)
     output_string += "-HS" + str(hidden_size)
-    if use_hmm_model:
-        output_string += "-HMM"
+    output_string += "-" + str(mode)
     globals().__setitem__("experiment_id",output_string)
 
 def write_out(*args, end='\n'):
@@ -440,13 +439,6 @@ def write_out(*args, end='\n'):
         with open("output/"+globals().get("experiment_id")+".txt", "a+") as output_file:
             output_file.write(output_string)
             output_file.flush()
-    print(output_string, end="")
-
-def write_result_summary(topology_accuracy):
-    output_string = globals().get("experiment_id") + ": " + str(topology_accuracy) + "\n"
-    with open("output/result_summary.txt", "a+") as output_file:
-        output_file.write(output_string)
-        output_file.flush()
     print(output_string, end="")
 
 def write_model_to_disk(model):
@@ -467,6 +459,18 @@ def load_model_from_disk(path, force_cpu=True):
         model = torch.load(path)
         model.flatten_parameters()
     return model
+
+def normalize_confusion_matrix(confusion_matrix):
+    for i in range(4):
+        sum = int(confusion_matrix[i].sum())
+        if sum != 0:
+            confusion_matrix[4][i] /= sum
+        for k in range(5):
+            if sum != 0:
+                confusion_matrix[i][k] /= sum
+            else:
+                confusion_matrix[i][k] = math.nan
+    return confusion_matrix
 
 def evaluate_model(data_set_identifier, data_loader, data_set_size, type_predictor_model, tm_model, sptm_model):
     assert data_set_size == get_data_set_size_from_data_loader(data_loader)

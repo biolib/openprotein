@@ -25,6 +25,7 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
     best_model_loss = 1e20
     best_model_minibatch_time = None
     best_model_path = None
+    best_prediction_data = None
     stopping_condition_met = False
     minibatches_proccesed = 0
 
@@ -58,7 +59,8 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
                 if validation_loss < best_model_loss:
                     best_model_loss = validation_loss
                     best_model_minibatch_time = minibatches_proccesed
-                    best_model_path = write_model_and_data_to_disk(model, model.post_process_prediction_data(prediction_data))
+                    best_model_path = write_model_to_disk(model)
+                    best_prediction_data = prediction_data
 
                 write_out("Validation loss:", validation_loss, "Train loss:", train_loss)
                 write_out("Best model so far (validation loss): ", best_model_loss, "at time", best_model_minibatch_time)
@@ -77,8 +79,9 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
                     if res.ok:
                         print(res.json())
 
-                if minibatches_proccesed > minimum_updates and minibatches_proccesed > best_model_minibatch_time * 2:
+                if minibatches_proccesed > minimum_updates and minibatches_proccesed >= best_model_minibatch_time + (minimum_updates * 2):
                     stopping_condition_met = True
                     break
     write_result_summary(best_model_loss)
+    write_result_summary(str(best_prediction_data[1]))
     return best_model_path
