@@ -13,7 +13,7 @@ import tensorflow as tf
 
 import openprotein
 from tm_util import *
-from util import write_result_summary
+from util import write_result_summary, write_out
 from sklearn.ensemble import RandomForestClassifier
 from enum import Enum
 
