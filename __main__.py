@@ -95,7 +95,7 @@ for cv_partition in [0, 1, 2, 3, 4]:
     validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set, args.minibatch_size_validation)
     test_loader = tm_contruct_dataloader_from_disk(test_preprocessed_set, args.minibatch_size_validation)
 
-    train_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(train_preprocessed_set_TOPOLOGY, int(args.minibatch_size / 4), balance_classes=False) # use smaller minibatch size for topology
+    train_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(train_preprocessed_set_TOPOLOGY, int(args.minibatch_size / 8), balance_classes=False) # use smaller minibatch size for topology
     validation_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(validation_preprocessed_set_TOPOLOGY, args.minibatch_size_validation)
     test_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(test_preprocessed_set_TOPOLOGY, args.minibatch_size_validation)
 
