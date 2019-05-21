@@ -79,7 +79,7 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
                     if res.ok:
                         print(res.json())
 
-                if minibatches_proccesed > minimum_updates and minibatches_proccesed >= best_model_minibatch_time + (minimum_updates * 2):
+                if minibatches_proccesed > minimum_updates and minibatches_proccesed >= best_model_minibatch_time + minimum_updates:
                     stopping_condition_met = True
                     break
     write_result_summary(best_model_loss)
