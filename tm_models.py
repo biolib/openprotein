@@ -368,8 +368,18 @@ class TMHMM3(openprotein.BaseModel):
         write_out(confusion_matrix)
         loss = float(torch.stack(validation_loss_tracker).mean())
 
-        self.type_01loss_values.append(float(torch.FloatTensor(validation_type_loss_tracker).mean().detach()))
-        self.topology_01loss_values.append(float(torch.FloatTensor(validation_topology_loss_tracker).mean().detach()))
+        type_loss = float(torch.FloatTensor(validation_type_loss_tracker).mean().detach())
+        topology_loss = float(torch.FloatTensor(validation_topology_loss_tracker).mean().detach())
+
+        self.type_01loss_values.append(type_loss)
+        self.topology_01loss_values.append(topology_loss)
+
+        if self.type_classifier is None:
+            # optimize for type
+            validation_loss = type_loss
+        else:
+            # optimize for topology
+            validation_loss = topology_loss
 
         data = {}
         data['type_01loss_values'] = self.type_01loss_values
@@ -377,7 +387,7 @@ class TMHMM3(openprotein.BaseModel):
 
         write_out(data)
 
-        return loss, data, [(protein_names, protein_aa_strings, protein_label_actual, protein_label_prediction),confusion_matrix]
+        return validation_loss, data, [(protein_names, protein_aa_strings, protein_label_actual, protein_label_prediction),confusion_matrix]
 
     def post_process_prediction_data(self, prediction_data):
         data = []
