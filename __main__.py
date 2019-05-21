@@ -33,7 +33,7 @@ parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
                     default=10, help='Minimum number of minibatch iterations.')
 parser.add_argument('--hidden-size', dest = 'hidden_size', type=int,
-                    default=128, help='Hidden size.')
+                    default=64, help='Hidden size.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
                     default=50, help='Size of each minibatch.')
 parser.add_argument('--minibatch-size-validation', dest = 'minibatch_size_validation', type=int,
