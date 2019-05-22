@@ -71,6 +71,9 @@ class TMHMM3(openprotein.BaseModel):
         self.label_01loss_values = []
         self.type_01loss_values = []
         self.topology_01loss_values = []
+        crf_end_mask = torch.ones(num_tags).byte()
+        crf_end_mask[3] = 1
+        crf_end_mask[4] = 1
 
         # if on GPU, move state to GPU memory
         if self.use_gpu:
@@ -79,15 +82,14 @@ class TMHMM3(openprotein.BaseModel):
             self.bi_lstm = self.bi_lstm.cuda()
             self.hidden_to_labels = self.hidden_to_labels.cuda()
             crf_transitions_mask = crf_transitions_mask.cuda()
+            crf_end_mask = crf_end_mask.cuda()
 
         # compute mask matrix from allow transitions list
         for i in range(num_tags):
             for k in range(num_tags):
                 if (i, k) in self.allowed_transitions:
                     crf_transitions_mask[i][k] = 0
-        crf_end_mask = torch.ones(num_tags).byte()
-        crf_end_mask[3] = 1
-        crf_end_mask[4] = 1
+
 
         # generate masked transition parameters
         crf_start_transitions, crf_end_transitions, crf_transitions = \
