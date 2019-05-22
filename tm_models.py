@@ -85,11 +85,14 @@ class TMHMM3(openprotein.BaseModel):
             for k in range(num_tags):
                 if (i, k) in self.allowed_transitions:
                     crf_transitions_mask[i][k] = 0
+        crf_end_mask = torch.ones(num_tags).byte()
+        crf_end_mask[3] = 1
+        crf_end_mask[4] = 1
 
         # generate masked transition parameters
         crf_start_transitions, crf_end_transitions, crf_transitions = \
             self.generate_masked_crf_transitions(
-                self.crfModel, (None, crf_transitions_mask, None)
+                self.crfModel, (None, crf_transitions_mask, crf_end_mask)
             )
 
         # initialize CRF
