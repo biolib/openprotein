@@ -72,8 +72,8 @@ class TMHMM3(openprotein.BaseModel):
         self.type_01loss_values = []
         self.topology_01loss_values = []
         crf_end_mask = torch.ones(num_tags).byte()
-        crf_end_mask[3] = 1
-        crf_end_mask[4] = 1
+        crf_end_mask[3] = 0
+        crf_end_mask[4] = 0
 
         # if on GPU, move state to GPU memory
         if self.use_gpu:
