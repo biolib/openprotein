@@ -43,8 +43,7 @@ class TMHMM3(openprotein.BaseModel):
         if model_mode == TMHMM3Mode.LSTM_CRF_HMM:
             allowed_transitions = [
                 (2, 2), (3, 3), (4, 4),
-                (3, 5), (4, 45),
-                (2, 5), (2, 45), (2, 3), (2, 4)]
+                (3, 5), (4, 45), (2, 4)]
             for i in range(5, 45 - 1):
                 allowed_transitions.append((i, i + 1))
                 if i > 8 and i < 43:
@@ -58,8 +57,7 @@ class TMHMM3(openprotein.BaseModel):
         else:
             allowed_transitions = [
                 (0, 0), (1, 1), (2, 2), (3, 3), (4, 4),
-                (3, 0), (0, 4), (4, 1), (1, 3),
-                (2, 0), (2, 1), (2, 3), (2, 4)]
+                (3, 0), (0, 4), (4, 1), (1, 3), (2, 4)]
         self.allowed_transitions = allowed_transitions
         self.crfModel = CRF(num_tags)
         self.type_classifier = type_predictor_model
