@@ -69,6 +69,10 @@ class TMHMM3(openprotein.BaseModel):
         self.label_01loss_values = []
         self.type_01loss_values = []
         self.topology_01loss_values = []
+        crf_start_mask = torch.ones(num_tags).byte()
+        crf_start_mask[2] = 0
+        crf_start_mask[3] = 0
+        crf_start_mask[4] = 0
         crf_end_mask = torch.ones(num_tags).byte()
         crf_end_mask[3] = 0
         crf_end_mask[4] = 0
@@ -92,7 +96,7 @@ class TMHMM3(openprotein.BaseModel):
         # generate masked transition parameters
         crf_start_transitions, crf_end_transitions, crf_transitions = \
             self.generate_masked_crf_transitions(
-                self.crfModel, (None, crf_transitions_mask, crf_end_mask)
+                self.crfModel, (crf_start_mask, crf_transitions_mask, crf_end_mask)
             )
 
         # initialize CRF
