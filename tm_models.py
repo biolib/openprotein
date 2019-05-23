@@ -84,6 +84,7 @@ class TMHMM3(openprotein.BaseModel):
             self.bi_lstm = self.bi_lstm.cuda()
             self.hidden_to_labels = self.hidden_to_labels.cuda()
             crf_transitions_mask = crf_transitions_mask.cuda()
+            crf_start_mask = crf_start_mask.cuda()
             crf_end_mask = crf_end_mask.cuda()
 
         # compute mask matrix from allow transitions list
