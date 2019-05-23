@@ -238,9 +238,9 @@ class TMHMM3(openprotein.BaseModel):
         _, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name_list, original_aa_string, original_label_string = training_minibatch
         minibatch_size = len(labels_list)
         labels_to_use = remapped_labels_list if self.model_mode == TMHMM3Mode.LSTM_CRF_HMM else labels_list
+        input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
         if self.model_mode == TMHMM3Mode.LSTM_CTC:
             # CTC loss
-            input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
             emissions, batch_sizes = self._get_network_emissions(input_sequences)
             output = torch.nn.functional.log_softmax(emissions, dim=2)
             topologies = list([torch.stack(list([label for (idx, label) in label_list_to_topology(a)])) for a in labels_list])
@@ -248,22 +248,31 @@ class TMHMM3(openprotein.BaseModel):
             return self.ctc_loss(output, targets, tuple(batch_sizes), tuple(target_lengths))
         else:
             actual_labels = torch.nn.utils.rnn.pad_sequence([autograd.Variable(l) for l in labels_to_use])
-            input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
             emissions, batch_sizes = self._get_network_emissions(input_sequences)
-            loss = -1 * self.crfModel(emissions, actual_labels, mask=self.batch_sizes_to_mask(batch_sizes))
-            if float(loss) > 100000:
-                for idx, batch_size in enumerate(batch_sizes):
-                    last_label = None
-                    for i in range(batch_size):
-                        label = int(actual_labels[i][idx])
-                        write_out(str(label) + ",", end='')
-                        if last_label is not None and (last_label, label) not in self.allowed_transitions:
-                            write_out("Error: invalid transition found")
-                            write_out((last_label, label))
-                            exit()
-                        last_label = label
-                    write_out(" ")
-            return loss / minibatch_size
+            if self.model_mode == TMHMM3Mode.LSTM:
+                prediction = emissions.transpose(0,1).contiguous().view(-1, emissions.size(-1))
+                target = actual_labels.transpose(0,1).contiguous().view(-1, 1)
+                losses = -torch.gather(nn.functional.log_softmax(prediction), dim=1, index=target).view(*actual_labels.transpose(0,1).size())
+                mask_expand = torch.range(0, batch_sizes.data.max() - 1).long().unsqueeze(0).expand(batch_sizes.size(0), batch_sizes.data.max())
+                if emissions.is_cuda:
+                    mask_expand = mask_expand.cuda()
+                mask = mask_expand < batch_sizes.unsqueeze(1).expand_as(mask_expand)
+                loss = (losses * mask.float()).sum() / batch_sizes.float().sum()
+            else:
+                loss = -1 * self.crfModel(emissions, actual_labels, mask=self.batch_sizes_to_mask(batch_sizes)) / minibatch_size
+                if float(loss) > 100000:
+                    for idx, batch_size in enumerate(batch_sizes):
+                        last_label = None
+                        for i in range(batch_size):
+                            label = int(actual_labels[i][idx])
+                            write_out(str(label) + ",", end='')
+                            if last_label is not None and (last_label, label) not in self.allowed_transitions:
+                                write_out("Error: invalid transition found")
+                                write_out((last_label, label))
+                                exit()
+                            last_label = label
+                        write_out(" ")
+            return loss
 
     def calculate_margin_probabilities(self, input_sequences):
         print("Calculating marginal probabilities on minibatch")
@@ -280,31 +289,11 @@ class TMHMM3(openprotein.BaseModel):
         probs_reduced[:, 2] = probs_reduced_prefix
         return probs_reduced.data
 
-    def train_type_predictor(self, train_set, minibatch_size):
-        if self.use_marg_prob:
-            print("Using marginal probabilities...")
-            train_dataloader = contruct_dataloader_from_disk(train_set, minibatch_size, balance_classes=True)
-            marginal_probabilities = []
-            actual_types = []
-            for i, data in enumerate(train_dataloader, 0):
-                print("Computing margin probs on minibatch",i)
-                aa_list_sorted, labels_list, remapped_labels_list, prot_type_list, prot_name_list, original_aa_string = data
-                actual_types.extend(list(map(int,prot_type_list)))
-                marginal_probabilities.append(self.calculate_margin_probabilities([autograd.Variable(x) for x in self.embed(original_aa_string)]))
-            marginal_probabilities = torch.cat(marginal_probabilities, dim = 0)
-            print("Training random forest...")
-
-            clf_tm = RandomForestClassifier(max_depth=6, random_state=0)
-            clf_sp = RandomForestClassifier(max_depth=6, random_state=0)
-            clf_tm.fit(marginal_probabilities.cpu(), list(map(is_tm,actual_types)))
-            clf_sp.fit(marginal_probabilities.cpu(), list(map(is_sp,actual_types)))
-            self.type_classier_tm = clf_tm
-            self.type_classier_sp = clf_sp
-
     def forward(self, original_aa_string, forced_types=None):
         input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
         emissions, batch_sizes = self._get_network_emissions(input_sequences)
-        if self.model_mode == TMHMM3Mode.LSTM_CTC:
+        if self.model_mode == TMHMM3Mode.LSTM_CTC or self.model_mode == TMHMM3Mode.LSTM:
+            # argmax to find best class
             output = torch.nn.functional.log_softmax(emissions, dim=2)
             _, predicted_labels = output.max(dim=2)
             predicted_labels = list([list(map(int,x[:batch_sizes[idx]])) for idx, x in enumerate(predicted_labels.transpose(0,1))])
