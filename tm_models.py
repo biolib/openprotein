@@ -254,8 +254,9 @@ class TMHMM3(openprotein.BaseModel):
                 target = actual_labels.transpose(0,1).contiguous().view(-1, 1)
                 losses = -torch.gather(nn.functional.log_softmax(prediction), dim=1, index=target).view(*actual_labels.transpose(0,1).size())
                 mask_expand = torch.range(0, batch_sizes.data.max() - 1).long().unsqueeze(0).expand(batch_sizes.size(0), batch_sizes.data.max())
-                if emissions.is_cuda:
+                if self.use_gpu:
                     mask_expand = mask_expand.cuda()
+                    batch_sizes = batch_sizes.cuda()
                 mask = mask_expand < batch_sizes.unsqueeze(1).expand_as(mask_expand)
                 loss = (losses * mask.float()).sum() / batch_sizes.float().sum()
             else:
