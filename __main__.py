@@ -42,6 +42,8 @@ parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
                     default=0.01, help='Learning rate to use during training.')
 parser.add_argument('--cv-partition', dest = 'cv_partition', type=int,
                     default=0, help='Run a particular cross validation rotation.')
+parser.add_argument('--model-mode', dest = 'model_mode', type=int,
+                    default=0, help='Which model to use.')
 args, unknown = parser.parse_known_args()
 
 if args.hide_ui:
@@ -57,7 +59,19 @@ if not args.hide_ui:
     start_dashboard_server()
 
 result_matrices = np.zeros((5,5), dtype=np.int64)
-model_mode = TMHMM3Mode.LSTM_CRF
+
+if args.model_mode == 0:
+    model_mode = TMHMM3Mode.LSTM
+elif args.model_mode == 1:
+    model_mode = TMHMM3Mode.LSTM_CRF
+elif args.model_mode == 2:
+    model_mode = TMHMM3Mode.LSTM_CRF_HMM
+elif args.model_mode == 3:
+    model_mode = TMHMM3Mode.LSTM_CTC
+else:
+    print("ERROR: No model defined")
+
+print("Using model:", model_mode)
 
 embedding = "BLOSUM62"
 use_marg_prob = False
