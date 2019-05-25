@@ -378,33 +378,34 @@ def parse_datafile_from_disk(file):
     return parse_3line_format(lines)
 
 
-def calculate_partitions(n_partitions, cluster_partitions, types):
-    partition_distribution = np.ones((n_partitions,len(np.unique(types))))
-    partition_assignments = np.zeros(cluster_partitions.shape[0])
+def calculate_partitions(partitions_count, cluster_partitions, types):
+    partition_distribution = torch.ones((partitions_count, len(torch.unique(types))), dtype=torch.long)
+    partition_assignments = torch.zeros(cluster_partitions.shape[0],dtype=torch.long)
 
-    for i in np.unique(cluster_partitions):
-        cluster_positions = np.where(cluster_partitions == i)
+    for i in torch.unique(cluster_partitions):
+        cluster_positions = (cluster_partitions == i).nonzero()
         cluster_types = types[cluster_positions]
-        unique_types_in_cluster, type_count = np.unique(cluster_types, return_counts=True)
-        unique_types_in_cluster = unique_types_in_cluster.astype(np.int32)
-        tmp_distribution = np.copy(partition_distribution)
+        unique_types_in_cluster, type_count = torch.unique(cluster_types, return_counts=True)
+        tmp_distribution = partition_distribution.clone()
         tmp_distribution[:,unique_types_in_cluster] += type_count
-        relative_distribution = partition_distribution/tmp_distribution
-        min_relative_distribution_group = np.argmin(np.sum(relative_distribution,axis=1))
+        relative_distribution = partition_distribution.double()/tmp_distribution.double()
+        min_relative_distribution_group = torch.argmin(torch.sum(relative_distribution,dim=1))
         partition_distribution[min_relative_distribution_group,unique_types_in_cluster] += type_count
         partition_assignments[cluster_positions] = min_relative_distribution_group
 
     write_out("Loaded data into the following partitions")
     write_out("[[  TM  SP+TM  SP Glob]")
-    write_out(partition_distribution.astype(np.int32)-np.ones(partition_distribution.shape).astype(np.int32))
-    return partition_assignments.astype(np.int32)
+    write_out(partition_distribution-torch.ones(partition_distribution.shape,dtype=torch.long))
+    return partition_assignments
 
 def load_data_from_disk(partition_rotation=0):
     print("Loading data from disk...")
     data = parse_datafile_from_disk('data/raw/TMHMM3.train.3line.clstr20')
     data_unzipped = list(zip(*data))
-    n_partitions = 5
-    partitions = calculate_partitions(cluster_partitions=np.array(data_unzipped[4]), types=np.array(data_unzipped[3]), n_partitions=n_partitions)
+    partitions = calculate_partitions(
+        cluster_partitions=torch.LongTensor(np.array(data_unzipped[4])),
+        types=torch.LongTensor(np.array(data_unzipped[3])),
+        partitions_count=5)
     train_set = []
     val_set = []
     test_set = []
