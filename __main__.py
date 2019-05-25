@@ -57,7 +57,7 @@ if not args.hide_ui:
     start_dashboard_server()
 
 result_matrices = np.zeros((5,5), dtype=np.int64)
-model_mode = TMHMM3Mode.LSTM
+model_mode = TMHMM3Mode.LSTM_CRF
 
 embedding = "BLOSUM62"
 use_marg_prob = False
@@ -92,18 +92,17 @@ for cv_partition in [0, 1, 2, 3, 4]:
     print("Completed preprocessing of data...")
 
     train_loader = tm_contruct_dataloader_from_disk(train_preprocessed_set, args.minibatch_size, balance_classes=True)
-    validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set, args.minibatch_size_validation)
-    test_loader = tm_contruct_dataloader_from_disk(test_preprocessed_set, args.minibatch_size_validation)
+    validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set, args.minibatch_size_validation, balance_classes=True)
+    test_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set, args.minibatch_size_validation) # TODO: replace this with test_preprocessed_set
 
-    train_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(train_preprocessed_set_TOPOLOGY, int(args.minibatch_size / 8), balance_classes=False) # use smaller minibatch size for topology
+    train_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(train_preprocessed_set_TOPOLOGY, int(args.minibatch_size / 8)) # use smaller minibatch size for topology
     validation_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(validation_preprocessed_set_TOPOLOGY, args.minibatch_size_validation)
-    test_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(test_preprocessed_set_TOPOLOGY, args.minibatch_size_validation)
 
     type_predictor_model_path = None
 
-    for (experiment_id, train_data, validation_data, test_data) in [
-        ("TRAIN_TYPE_CV"+str(cv_partition)+"-" + str(model_mode)+"-HS" + str(args.hidden_size), train_loader, validation_loader, test_loader),
-        ("TRAIN_TOPOLOGY_CV"+str(cv_partition)+"-" + str(model_mode)+"-HS" + str(args.hidden_size), train_loader_TOPOLOGY, validation_loader_TOPOLOGY, test_loader_TOPOLOGY)]:
+    for (experiment_id, train_data, validation_data) in [
+        ("TRAIN_TYPE_CV"+str(cv_partition)+"-" + str(model_mode)+"-HS" + str(args.hidden_size), train_loader, validation_loader),
+        ("TRAIN_TOPOLOGY_CV"+str(cv_partition)+"-" + str(model_mode)+"-HS" + str(args.hidden_size), train_loader_TOPOLOGY, validation_loader_TOPOLOGY)]:
 
         type_predictor = None
         if type_predictor_model_path is not None:
@@ -141,7 +140,7 @@ for cv_partition in [0, 1, 2, 3, 4]:
     if args.evaluate_on_test:
         write_out("Testing model of test set...")
         model = load_model_from_disk(model_path, force_cpu=False)
-        loss, json_data, prediction_data = model.evaluate_model(validation_loader)
+        loss, json_data, prediction_data = model.evaluate_model(test_loader)
 
         write_prediction_data_to_disk(model.post_process_prediction_data(prediction_data))
         result_matrix = prediction_data[1]
