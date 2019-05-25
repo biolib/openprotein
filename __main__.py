@@ -43,7 +43,7 @@ parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
 parser.add_argument('--cv-partition', dest = 'cv_partition', type=int,
                     default=0, help='Run a particular cross validation rotation.')
 parser.add_argument('--model-mode', dest = 'model_mode', type=int,
-                    default=0, help='Which model to use.')
+                    default=3, help='Which model to use.')
 args, unknown = parser.parse_known_args()
 
 if args.hide_ui:

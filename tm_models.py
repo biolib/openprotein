@@ -294,12 +294,22 @@ class TMHMM3(openprotein.BaseModel):
         input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
         emissions, batch_sizes = self._get_network_emissions(input_sequences)
         if self.model_mode == TMHMM3Mode.LSTM_CTC or self.model_mode == TMHMM3Mode.LSTM:
-            # argmax to find best class
             output = torch.nn.functional.log_softmax(emissions, dim=2)
             _, predicted_labels = output.max(dim=2)
             predicted_labels = list([list(map(int,x[:batch_sizes[idx]])) for idx, x in enumerate(predicted_labels.transpose(0,1))])
-            predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
             predicted_topologies = list(map(label_list_to_topology, predicted_labels))
+            if forced_types is None:
+                tf_output = tf.placeholder(tf.float32, shape=emissions.size())
+                tf_batch_sizes = tf.placeholder(tf.int32, shape=(emissions.size()[1]))
+                beam_decoded, _ = tf.nn.ctc_beam_search_decoder(tf_output, sequence_length=tf_batch_sizes)
+                decoded_topology = tf.sparse_tensor_to_dense(beam_decoded[0])
+                with tf.Session() as session:
+                    tf.global_variables_initializer().run()
+                    decoded_topology = session.run(decoded_topology, feed_dict={tf_output: output.detach().cpu().numpy(), tf_batch_sizes: batch_sizes})
+                    predicted_types = list(map(get_predicted_type_from_labels, decoded_topology))
+            else:
+                predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
+
         else:
             mask = self.batch_sizes_to_mask(batch_sizes)
             labels_remapped = self.crfModel.decode(emissions, mask=mask)
