@@ -3,19 +3,13 @@
 # @author Jeppe Hallgren
 #
 # For license information, please see the LICENSE file in the root directory.
-from graphviz import Digraph
 
-from preprocessing import process_raw_data
-import pickle
 import argparse
+import importlib
 from dashboard import start_dashboard_server
 
-from models import *
-import os
-from tm_models import *
 from tm_util import *
-from util import write_out, set_experiment_id
-from training import train_model
+from util import write_out
 
 print("------------------------")
 print("--- OpenProtein v0.1 ---")
@@ -31,13 +25,11 @@ parser.add_argument('--evaluate-on-test', dest = 'evaluate_on_test', action = 's
 parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
                     default=25, help='Evaluate model on validation set every n minibatches.')
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
-                    default=500, help='Minimum number of minibatch iterations.')
-parser.add_argument('--hidden-size', dest = 'hidden_size', type=int,
-                    default=64, help='Hidden size.')
+                    default=100, help='Minimum number of minibatch iterations.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
-                    default=50, help='Size of each minibatch.')
-parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,
-                    default=0.01, help='Learning rate to use during training.')
+                    default=5, help='Size of each minibatch.')
+parser.add_argument('--experiment-id', dest = 'experiment_id', type=str,
+                    default="example", help='Which experiment to run.')
 args, unknown = parser.parse_known_args()
 
 if args.hide_ui:
@@ -52,3 +44,5 @@ if not args.hide_ui:
     # start web server
     start_dashboard_server()
 
+experiment = importlib.import_module("experiments." + args.experiment_id)
+experiment.run_experiment(parser,use_gpu)

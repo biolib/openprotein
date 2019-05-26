@@ -20,6 +20,8 @@ from training import train_model
 def run_experiment(parser, use_gpu):
     parser.add_argument('--minibatch-size-validation', dest='minibatch_size_validation', type=int,
                         default=50, help='Size of each minibatch during evaluation.')
+    parser.add_argument('--hidden-size', dest='hidden_size', type=int,
+                        default=64, help='Hidden size.')
     parser.add_argument('--learning-rate', dest='learning_rate', type=float,
                         default=0.01, help='Learning rate to use during training.')
     parser.add_argument('--cv-partition', dest='cv_partition', type=int,
