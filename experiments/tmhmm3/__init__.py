@@ -3,19 +3,16 @@
 # @author Jeppe Hallgren
 #
 # For license information, please see the LICENSE file in the root directory.
-from graphviz import Digraph
 
-from preprocessing import process_raw_data
-import pickle
-import argparse
-from dashboard import start_dashboard_server
-
-from models import *
 import os
-from tm_models import *
-from tm_util import *
-from util import write_out, set_experiment_id
+import pickle
+
+from .tm_models import *
+from .tm_util import *
+from models import *
 from training import train_model
+from util import write_out, set_experiment_id
+
 
 def run_experiment(parser, use_gpu):
     parser.add_argument('--minibatch-size-validation', dest='minibatch_size_validation', type=int,

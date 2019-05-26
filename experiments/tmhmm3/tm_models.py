@@ -4,18 +4,16 @@
 #
 # For license information, please see the LICENSE file in the root directory.
 
-import torch
+from enum import Enum
+
+import tensorflow as tf
 import torch.autograd as autograd
 import torch.nn as nn
-from pytorchcrf.torchcrf import CRF
-import time
-import tensorflow as tf
 
 import openprotein
-from tm_util import *
-from util import write_result_summary, write_out
-from sklearn.ensemble import RandomForestClassifier
-from enum import Enum
+from experiments.tmhmm3.tm_util import *
+from pytorchcrf.torchcrf import CRF
+from util import write_out
 
 # seed random generator for reproducibility
 torch.manual_seed(1)
