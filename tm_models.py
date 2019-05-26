@@ -28,7 +28,7 @@ class TMHMM3(openprotein.BaseModel):
         num_tags = 5
         num_labels = 5
         if model_mode == TMHMM3Mode.LSTM_CRF_HMM:
-            num_tags += 2 * 40
+            num_tags += 2 * 40 + 60
         elif model_mode == TMHMM3Mode.LSTM_CTC:
             num_tags += 1 # add extra class for blank
             num_labels += 1
@@ -42,8 +42,8 @@ class TMHMM3(openprotein.BaseModel):
         self.hidden_to_labels = nn.Linear(self.hidden_size * 2, num_labels) # * 2 for bidirectional
         if model_mode == TMHMM3Mode.LSTM_CRF_HMM:
             allowed_transitions = [
-                (2, 2), (3, 3), (4, 4),
-                (3, 5), (4, 45), (2, 4)]
+                (3, 3), (4, 4),
+                (3, 5), (4, 45)]
             for i in range(5, 45 - 1):
                 allowed_transitions.append((i, i + 1))
                 if i > 8 and i < 43:
@@ -54,6 +54,12 @@ class TMHMM3(openprotein.BaseModel):
                 if i > 48 and i < 83:
                     allowed_transitions.append((48, i))
             allowed_transitions.append((84, 3))
+            for i in range(85, 144):
+                allowed_transitions.append((i, i + 1))
+                allowed_transitions.append((2, i))
+            allowed_transitions.append((2, 144))
+            allowed_transitions.append((2, 4))
+            allowed_transitions.append((144, 4))
         else:
             allowed_transitions = [
                 (0, 0), (1, 1), (2, 2), (3, 3), (4, 4),
@@ -63,7 +69,6 @@ class TMHMM3(openprotein.BaseModel):
         self.type_classifier = type_predictor_model
         self.type_tm_classier = None
         self.type_sp_classier = None
-        self.ctc_loss = nn.CTCLoss(blank=5)
         crf_transitions_mask = torch.ones((num_tags, num_tags)).byte()
 
         self.label_01loss_values = []
@@ -214,12 +219,15 @@ class TMHMM3(openprotein.BaseModel):
         if self.model_mode == TMHMM3Mode.LSTM_CRF_HMM:
             inout_select = torch.LongTensor([0])
             outin_select = torch.LongTensor([1])
+            signal_select = torch.LongTensor([2])
             if self.use_gpu:
                 inout_select = inout_select.cuda()
                 outin_select = outin_select.cuda()
+                signal_select = signal_select.cuda()
             inout = torch.index_select(emissions, 1, autograd.Variable(inout_select))
             outin = torch.index_select(emissions, 1, autograd.Variable(outin_select))
-            emissions = torch.cat((emissions, inout.expand(-1, 40), outin.expand(-1, 40)), 1)
+            signal = torch.index_select(emissions, 1, autograd.Variable(signal_select))
+            emissions = torch.cat((emissions, inout.expand(-1, 40), outin.expand(-1, 40), signal.expand(-1, 60)), 1)
         emissions_padded = torch.nn.utils.rnn.pad_packed_sequence(torch.nn.utils.rnn.PackedSequence(emissions,batch_sizes))
         return emissions_padded
 
@@ -245,7 +253,8 @@ class TMHMM3(openprotein.BaseModel):
             output = torch.nn.functional.log_softmax(emissions, dim=2)
             topologies = list([torch.stack(list([label for (idx, label) in label_list_to_topology(a)])) for a in labels_list])
             targets, target_lengths = torch.nn.utils.rnn.pad_sequence(topologies).transpose(0,1), list([a.size()[0] for a in topologies])
-            return self.ctc_loss(output, targets, tuple(batch_sizes), tuple(target_lengths))
+            ctc_loss = nn.CTCLoss(blank=5)
+            return ctc_loss(output, targets, tuple(batch_sizes), tuple(target_lengths))
         else:
             actual_labels = torch.nn.utils.rnn.pad_sequence([autograd.Variable(l) for l in labels_to_use])
             emissions, batch_sizes = self._get_network_emissions(input_sequences)

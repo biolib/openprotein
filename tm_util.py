@@ -111,6 +111,11 @@ class TMDataset(Dataset):
                             remapped_labels.append(45 + i)
                         for i in range(40 - (membrane_length - mm_beginning), 40):
                             remapped_labels.append(45 + i)
+                    elif l == 2: # S
+                        signal_length = topology[idx + 1][0] - pos
+                        remapped_labels.append(2)
+                        for i in range(signal_length - 1):
+                            remapped_labels.append(145 - ((signal_length - 1) - i))
                     else:
                         if idx == (len(topology) - 1):
                             for i in range(len(labels)-pos):
