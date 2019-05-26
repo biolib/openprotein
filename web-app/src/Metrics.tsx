@@ -35,22 +35,8 @@ class Metrics extends React.Component<IMetricsProbs, any> {
                     borderColor: 'rgb(255, 99, 132)',
                     data: [],
                     fill: false,
-                    label: 'Train Loss',
+                    label: 'Waiting for data...',
                     yAxisID: 'y-axis-1'
-                }, {
-                    backgroundColor: 'rgb(54, 162, 235)',
-                    borderColor: 'rgb(54, 162, 235)',
-                    data: [],
-                    fill: false,
-                    label: 'Validation dRMSD avg',
-                    yAxisID: 'y-axis-2'
-                }, {
-                    backgroundColor: 'rgb(75, 192, 192)',
-                    borderColor: 'rgb(75, 192, 192)',
-                    data: [],
-                    fill: false,
-                    label: 'Validation RMSD avg',
-                    yAxisID: 'y-axis-3'
                 }],
                 labels: [],
             },
@@ -86,19 +72,7 @@ class Metrics extends React.Component<IMetricsProbs, any> {
                         position: 'right',
                         scaleLabel: {
                             display: true,
-                            labelString: 'dRMSD'
-                        },
-                        type: 'linear', // only linear but allow scale type registration. This allows extensions to exist solely for log scale for instance
-                    }, {
-                        display: true,
-                        gridLines: {
-                            drawOnChartArea: false, // only want the grid lines for one axis to show up
-                        },
-                        id: 'y-axis-3',
-                        position: 'right',
-                        scaleLabel: {
-                            display: true,
-                            labelString: 'RMSD'
+                            labelString: 'Validation Loss'
                         },
                         type: 'linear', // only linear but allow scale type registration. This allows extensions to exist solely for log scale for instance
                     }]
@@ -176,46 +150,84 @@ class Metrics extends React.Component<IMetricsProbs, any> {
                 }
 
                 app.setPdbData({true: data.pdb_data_true, pred: data.pdb_data_pred});
-
-                scatterConfig.data.datasets[0].data = data.phi_actual.map( (h: any, i: any) => {
-                    return {
-                        x: h,
-                        y: data.psi_actual[i],
-                    };
-                });
-                scatterConfig.data.datasets[1].data = data.phi_predicted.map( (h: any, i: any) => {
-                    return {
-                        x: h,
-                        y: data.psi_predicted[i],
-                    };
-                });
+                if (data.phi_actual) {
+                    scatterConfig.data.datasets[0].data = data.phi_actual.map( (h: any, i: any) => {
+                        return {
+                            x: h,
+                            y: data.psi_actual[i],
+                        };
+                    });
+                }
+                if (data.phi_predicted) {
+                    scatterConfig.data.datasets[1].data = data.phi_predicted.map( (h: any, i: any) => {
+                        return {
+                            x: h,
+                            y: data.psi_predicted[i],
+                        };
+                    });
+                }
 
                 lineConfig.data.labels = data.sample_num
-                lineConfig.data.datasets[0].data = data.sample_num.map( (h: any, i: any) => {
-                    return {
-                        x: h,
-                        y: data.train_loss_values[i],
-                    };
+                lineConfig.data.datasets = []
+                lineConfig.options.scales.yAxes = []
+                let colors = ['rgb(255, 99, 132)', 'rgb(54, 162, 235)', 'rgb(101, 101, 101)', 'rgb(75, 192, 192)' , 'rgb(220, 220, 220)']
+
+                lineConfig.options.scales.yAxes.push({
+                    display: true,
+                    id: 'y-axis-01loss',
+                    position: 'right',
+                    scaleLabel: {
+                        display: true,
+                        labelString: '0-1 Loss'
+                    },
+                    type: 'linear',
                 });
-                lineConfig.data.datasets[1].data = data.sample_num.map( (h: any, i: any) => {
-                    return {
-                        x: h,
-                        y: data.drmsd_avg[i],
-                    };
-                });
-                lineConfig.data.datasets[2].data = data.sample_num.map( (h: any, i: any) => {
-                    return {
-                        x: h,
-                        y: data.rmsd_avg[i],
-                    };
-                });
+
+                for (let datasetName of ['train_loss_values','validation_loss_values','drmsd_avg','rmsd_avg','type_01loss_values','label_01loss_values','topology_01loss_values']) {
+                    if (data[datasetName]) {
+                        let datasetId = lineConfig.data.datasets.length;
+
+                        let yAxisName = 'y-axis-' + datasetId
+                        if (!datasetName.includes('01loss')) {
+                            lineConfig.options.scales.yAxes.push({
+                                display: true,
+                                gridLines: {
+                                    drawOnChartArea: false, // we only want one set of grid lines
+                                },
+                                id: yAxisName,
+                                position: 'left',
+                                scaleLabel: {
+                                    display: true,
+                                    labelString: datasetName
+                                },
+                                type: 'linear',
+                            });
+                        } else {
+                            yAxisName = 'y-axis-01loss'
+                        }
+
+                        lineConfig.data.datasets.push({
+                            backgroundColor: colors[datasetId],
+                            borderColor: colors[datasetId],
+                            data: data.sample_num.map( (h: any, i: any) => {
+                                    return {
+                                        x: h,
+                                        y: data[datasetName][i],
+                                    };
+                                }),
+                            fill: false,
+                            label: datasetName,
+                            yAxisID: yAxisName
+                        });
+                    }
+                }
 
                 myChart.update();
                 myChart2.update();
             } );
         }
 
-        const updateDataInterval = window.setInterval(update_data, 1000, this);
+        const updateDataInterval = window.setInterval(update_data, 5000, this);
 
         $.ajaxSetup({
             "error":() => {
