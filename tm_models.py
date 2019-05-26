@@ -307,7 +307,7 @@ class TMHMM3(openprotein.BaseModel):
             _, predicted_labels = output.max(dim=2)
             predicted_labels = list([list(map(int,x[:batch_sizes[idx]])) for idx, x in enumerate(predicted_labels.transpose(0,1))])
             predicted_topologies = list(map(label_list_to_topology, predicted_labels))
-            if forced_types is None:
+            if forced_types is None and self.model_mode == TMHMM3Mode.LSTM_CTC:
                 tf_output = tf.placeholder(tf.float32, shape=emissions.size())
                 tf_batch_sizes = tf.placeholder(tf.int32, shape=(emissions.size()[1]))
                 beam_decoded, _ = tf.nn.ctc_beam_search_decoder(tf_output, sequence_length=tf_batch_sizes)
