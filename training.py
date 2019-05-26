@@ -26,7 +26,7 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
     best_model_loss = 1e20
     best_model_minibatch_time = None
     best_model_path = None
-    best_prediction_data = None
+    best_json_data = None
     stopping_condition_met = False
     minibatches_proccesed = 0
 
@@ -53,7 +53,7 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
 
                 write_out("Testing model on validation set...")
 
-                train_loss = loss_tracker.mean()
+                train_loss = float(loss_tracker.mean())
                 loss_tracker = np.zeros(0)
                 validation_loss, json_data, _ = model.evaluate_model(validation_loader)
 
@@ -61,15 +61,15 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
                     best_model_loss = validation_loss
                     best_model_minibatch_time = minibatches_proccesed
                     best_model_path = write_model_to_disk(model)
-                    best_prediction_data = json_data
+                    best_json_data = json_data
 
                 write_out("Validation loss:", validation_loss, "Train loss:", train_loss)
                 write_out("Best model so far (validation loss): ", best_model_loss, "at time", best_model_minibatch_time)
                 write_out("Best model stored at " + best_model_path)
                 write_out("Minibatches processed:",minibatches_proccesed)
                 sample_num.append(minibatches_proccesed)
-                train_loss_values.append(float(train_loss))
-                validation_loss_values.append(float(validation_loss))
+                train_loss_values.append(train_loss)
+                validation_loss_values.append(validation_loss)
 
                 if not hide_ui:
                     json_data["validation_dataset_size"] = validation_dataset_size
@@ -84,5 +84,5 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
                     stopping_condition_met = True
                     break
     write_result_summary(best_model_loss)
-    write_result_summary(json.dumps(best_prediction_data))
+    write_result_summary(json.dumps(best_json_data))
     return best_model_path
