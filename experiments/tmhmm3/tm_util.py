@@ -7,9 +7,9 @@
 import torch
 from torch.utils.data.dataset import Dataset
 import numpy as np
-from datetime import datetime
 import math
 import random
+from util import write_out
 
 class TMDataset(Dataset):
     def __init__(self, aa_list, label_list, remapped_labels_list, type_list, topology_list, prot_name_list, original_aa_string_list, original_label_string):
@@ -243,6 +243,7 @@ class RandomBatchSequentialSampler(torch.utils.data.sampler.Sampler):
             length += 1
         return length
 
+
 def label_list_to_topology(labels):
     top_list = []
     last_label = None
@@ -251,6 +252,7 @@ def label_list_to_topology(labels):
             top_list.append((idx, label))
         last_label = label
     return top_list
+
 
 def remapped_labels_to_orginal_labels(labels):
     for idx, pl in enumerate(labels):
@@ -262,7 +264,8 @@ def remapped_labels_to_orginal_labels(labels):
             labels[idx] = 2
     return labels
 
-def orginal_labels_to_fasta(label_list):
+
+def original_labels_to_fasta(label_list):
     sequence = ""
     for label in label_list:
         if label == 0:
@@ -279,6 +282,7 @@ def orginal_labels_to_fasta(label_list):
             sequence = sequence + "-"
     return sequence
 
+
 def get_predicted_type_from_labels(labels):
     labels = list([int(i) for i in labels])
     if 0 in labels or 1 in labels:
@@ -291,6 +295,7 @@ def get_predicted_type_from_labels(labels):
             return 2
         else:
             return 3
+
 
 def is_topologies_equal(topology_a, topology_b, minimum_seqment_overlap=5):
     if len(topology_a) != len(topology_b):
@@ -305,33 +310,6 @@ def is_topologies_equal(topology_a, topology_b, minimum_seqment_overlap=5):
                 return False
     return True
 
-def draw_plot(fig, plt, validation_dataset_size, sample_num, train_loss_values,
-              zero_one_topology_loss_values, zero_one_loss_values,zero_one_type_loss_values, embedding):
-    def draw_with_vars():
-        ax = fig.gca()
-        ax2 = ax.twinx()
-        plt.grid(True)
-        plt.title("Training progress with " + embedding + " embedding and marginal probabilities")
-        train_loss_plot, = ax.plot(sample_num, train_loss_values)
-        ax.set_ylabel('Negative log likelihood')
-        ax.yaxis.labelpad = 0
-        topology_loss_plot, = ax2.plot(sample_num, zero_one_topology_loss_values, color='black')
-        loss_plot, = ax2.plot(sample_num, zero_one_loss_values, color='g')
-        type_loss_plot, = ax2.plot(sample_num, zero_one_type_loss_values, color='y')
-        ax2.set_ylabel('0-1 loss')
-        ax2.set_ylim(bottom=0)
-        plt.legend([train_loss_plot, loss_plot, type_loss_plot, topology_loss_plot],
-                   ['Train loss on last batch', 'Validation 0-1 label loss',
-                    'Validation 0-1 type loss', 'Validation 0-1 topology loss'])
-        ax.set_xlabel('Minibatches processed (=network updates)', color='black')
-    return draw_with_vars
-
-def get_data_set_size_from_data_loader(data_loader):
-    size = 0
-    for minibatch_id, minibatch in enumerate(data_loader, 0):
-        aa_list_sorted, labels_list, remapped_labels_list, prot_type_list, prot_name_list, original_aa_string_list = minibatch
-        size += len(labels_list)
-    return size
 
 def parse_3line_format(lines):
     i = 0
@@ -380,6 +358,7 @@ def parse_3line_format(lines):
 
     return prot_list
 
+
 def parse_datafile_from_disk(file):
     lines = list([line.strip() for line in open(file)])
     return parse_3line_format(lines)
@@ -404,6 +383,7 @@ def calculate_partitions(partitions_count, cluster_partitions, types):
     write_out("[[  TM  SP+TM  SP Glob]")
     write_out(partition_distribution-torch.ones(partition_distribution.shape,dtype=torch.long))
     return partition_assignments
+
 
 def load_data_from_disk(partition_rotation=0):
     print("Loading data from disk...")
@@ -432,41 +412,6 @@ def load_data_from_disk(partition_rotation=0):
           len(test_set), "test set")
     return train_set, val_set, test_set
 
-def set_experiment_id(data_set_identifier, mode, learning_rate, minibatch_size,hidden_size):
-    output_string = datetime.now().strftime('%Y-%m-%d_%H_%M_%S')
-    output_string += "-" + data_set_identifier
-    output_string += "-LR" + str(learning_rate).replace(".","_")
-    output_string += "-MB" + str(minibatch_size)
-    output_string += "-HS" + str(hidden_size)
-    output_string += "-" + str(mode)
-    globals().__setitem__("experiment_id",output_string)
-
-def write_out(*args, end='\n'):
-    output_string = datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ": " + str.join(" ", [str(a) for a in args]) + end
-    if globals().get("experiment_id") is not None:
-        with open("output/"+globals().get("experiment_id")+".txt", "a+") as output_file:
-            output_file.write(output_string)
-            output_file.flush()
-    print(output_string, end="")
-
-def write_model_to_disk(model):
-    path = "output/models/"+globals().get("experiment_id")+".model"
-    torch.save(model,path)
-    return path
-
-def load_model_from_disk(path, force_cpu=True):
-    if force_cpu:
-        # load model with map_location set to storage (main mem)
-        model = torch.load(path, map_location=lambda storage, loc: storage)
-        # flattern parameters in memory
-        model.flatten_parameters()
-        # update internal TMHMM3 state accordingly
-        model.use_gpu = False
-    else:
-        # load model using default map_location
-        model = torch.load(path)
-        model.flatten_parameters()
-    return model
 
 def normalize_confusion_matrix(confusion_matrix):
     for i in range(4):
@@ -479,112 +424,3 @@ def normalize_confusion_matrix(confusion_matrix):
             else:
                 confusion_matrix[i][k] = math.nan
     return confusion_matrix
-
-def evaluate_model(data_set_identifier, data_loader, data_set_size, type_predictor_model, tm_model, sptm_model):
-    assert data_set_size == get_data_set_size_from_data_loader(data_loader)
-    label_loss = 0
-    type_error = 0
-    type_count = np.zeros(4)
-    topology_error = np.zeros(4)
-    confusion_matrix = np.zeros((4, 4))
-    validation_loss_tracker = []
-    data_total = []
-    for i, data in enumerate(data_loader, 0):
-        _, labels_list, remapped_labels_list, prot_type_list, prot_name_list, original_aa_string = data
-        use_hmm_model = True
-        labels_to_use = remapped_labels_list if use_hmm_model else labels_list
-        actual_labels = torch.nn.utils.rnn.pad_sequence([l for l in labels_to_use])
-        validation_loss_tracker.append( tm_model.neg_log_likelihood(original_aa_string, actual_labels).detach())
-        write_out("Starting viterbi decode...")
-        predicted_tm = []
-        predicted_sptm = []
-        if type_predictor_model:
-            predicted_labels_for_type, type_predictor_types = type_predictor_model(original_aa_string)
-            for idx, predicted_type in enumerate(type_predictor_types):
-                if predicted_type == 0:
-                    predicted_tm.append(idx)
-                elif predicted_type == 1:
-                    predicted_sptm.append(idx)
-        else:
-            predicted_labels_for_type = None
-            type_predictor_types = None
-
-        predicted_types = type_predictor_types
-        if tm_model is not None and sptm_model is not None:
-            tm_predicted_labels_list, tm_predicted_types = \
-                tm_model(original_aa_string, type_predictor_types if type_predictor_model else None)
-            sptm_predicted_labels_list, sptm_predicted_types = \
-                sptm_model(original_aa_string, type_predictor_types if type_predictor_model else None)
-
-            predicted_labels_list = predicted_labels_for_type
-            for idx in predicted_tm:
-                predicted_labels_list[idx] = tm_predicted_labels_list[idx]
-            for idx in predicted_sptm:
-                predicted_labels_list[idx] = sptm_predicted_labels_list[idx]
-        else:
-            # train just on the first given model (tm_model)
-            predicted_labels_list, predicted_types = \
-                tm_model(original_aa_string, type_predictor_types if type_predictor_model else None)
-
-        write_out("Completed viterbi decode")
-        minibatch_data = list(zip(predicted_labels_list,
-                                  #predicted_labels_for_type if type_predictor_model else predicted_labels_list,
-                                  predicted_types,
-                                  list(map(lambda x: list(x) if x is not None else None,labels_list)),
-                                  list(map(lambda x: int(x) if x is not None else None,prot_type_list)),
-                                  prot_name_list,
-                                  original_aa_string))
-        data_total.extend(minibatch_data)
-        for predicted_labels, predicted_type, true_labels, actual_type, prot_name_list, original_aa_string in \
-                minibatch_data:
-            error = 0
-            predicted_topology = label_list_to_topology(predicted_labels)
-            if actual_type is not None:
-                type_count[actual_type] += 1
-            if true_labels is not None:
-                for idx, label in enumerate(predicted_labels):
-                    if true_labels[idx] != label:
-                        error += 1
-                true_topology = label_list_to_topology(true_labels)
-
-                if not is_topologies_equal(true_topology, predicted_topology, 5):
-                    topology_error[actual_type] += 1
-                    #write_out(list([int(a) for a in true_labels]))
-                    #write_out(list([int(a) for a in predicted_labels]))
-                    #write_out(predicted_labels_type)
-                    write_out(list([(a,int(b)) for (a,b) in true_topology]))
-                    write_out(list([(a,int(b)) for (a,b) in predicted_topology]))
-                    if predicted_type != actual_type:
-                        type_error += 1
-                        write_out("Predicted type:", predicted_type, "Actual type:", actual_type)
-                else:
-                    if predicted_type != actual_type:
-                        type_error += 1
-                        topology_error[actual_type] += 1
-                        write_out("Predicted type:", predicted_type, "Actual type:", actual_type)
-                confusion_matrix[actual_type][predicted_type] += 1.0
-                label_loss += error / len(predicted_labels)
-    label_loss /= data_set_size
-    type_loss = type_error / data_set_size
-    topology_loss = topology_error.sum() / data_set_size
-    loss = torch.stack(validation_loss_tracker).mean()
-    for i in range(4):
-        sum = int(confusion_matrix[i].sum())
-        for k in range(4):
-            if sum != 0:
-                confusion_matrix[i][k] /= sum
-            else:
-                confusion_matrix[i][k] = math.nan
-    return (loss, label_loss, type_loss, type_count, topology_loss, topology_error, confusion_matrix, data_total)
-
-def fast_eval_model(data_loader, data_set_size, model):
-    assert data_set_size == get_data_set_size_from_data_loader(data_loader)
-    validation_loss_tracker = []
-    for i, data in enumerate(data_loader, 0):
-        _, labels_list, remapped_labels_list, prot_type_list, prot_name_list, original_aa_string = data
-        use_hmm_model = True
-        labels_to_use = remapped_labels_list if use_hmm_model else labels_list
-        actual_labels = torch.nn.utils.rnn.pad_sequence([l for l in labels_to_use])
-        validation_loss_tracker.append( model.neg_log_likelihood(original_aa_string, actual_labels).detach())
-    loss = torch.stack(validation_loss_tracker).mean()
-    return loss

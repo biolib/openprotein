@@ -11,7 +11,8 @@ from .tm_models import *
 from .tm_util import *
 from models import *
 from training import train_model
-from util import write_out, set_experiment_id
+from util import write_out, set_experiment_id, load_model_from_disk
+import numpy as np
 
 
 def run_experiment(parser, use_gpu):
@@ -24,7 +25,7 @@ def run_experiment(parser, use_gpu):
     parser.add_argument('--cv-partition', dest='cv_partition', type=int,
                         default=0, help='Run a particular cross validation rotation.')
     parser.add_argument('--model-mode', dest='model_mode', type=int,
-                        default=2, help='Which model to use.')
+                        default=0, help='Which model to use.')
     args, unknown = parser.parse_known_args()
 
     result_matrices = np.zeros((5, 5), dtype=np.int64)
@@ -135,7 +136,7 @@ def run_experiment(parser, use_gpu):
             loss, json_data, prediction_data = model.evaluate_model(test_loader)
 
             write_prediction_data_to_disk(model.post_process_prediction_data(prediction_data))
-            result_matrix = json_data['confusion_matrix']
+            result_matrix = np.array(json_data['confusion_matrix'])
             result_matrices += result_matrix
             write_out(result_matrix)
 

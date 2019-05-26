@@ -262,9 +262,6 @@ class TMHMM3(openprotein.BaseModel):
             mask = mask.cuda()
         return mask
 
-    def get_last_reduced_mean(self):
-        return self.last_reduced_mean
-
     def compute_loss(self, training_minibatch):
         _, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name_list, original_aa_string, original_label_string = training_minibatch
         minibatch_size = len(labels_list)
@@ -307,21 +304,6 @@ class TMHMM3(openprotein.BaseModel):
                         write_out(" ")
             return loss
 
-    def calculate_margin_probabilities(self, input_sequences):
-        print("Calculating marginal probabilities on minibatch")
-        emissions, batch_sizes = self._get_network_emissions(input_sequences)
-        mask = self.batch_sizes_to_mask(batch_sizes)
-        s = torch.nn.Softmax(dim=2)
-        marginal_probabilities = s(autograd.Variable(self.crfModel.compute_log_marginal_probabilities(emissions.data.clone(), mask.data.clone())))
-        if marginal_probabilities.shape[2] is not 5:
-            marginal_probabilities[:, :, 0] = torch.sum(marginal_probabilities[:, :, 5:45], dim=2)
-            marginal_probabilities[:, :, 1] = torch.sum(marginal_probabilities[:, :, 45:85], dim=2)
-            marginal_probabilities = marginal_probabilities[:, :, :5]
-        probs_reduced_prefix = torch.mean(marginal_probabilities[:50, :, 2], dim=0)
-        probs_reduced = torch.mean(marginal_probabilities, dim=0)
-        probs_reduced[:, 2] = probs_reduced_prefix
-        return probs_reduced.data
-
     def forward(self, original_aa_string, forced_types=None):
         input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
         emissions, batch_sizes = self._get_network_emissions(input_sequences)
@@ -347,13 +329,7 @@ class TMHMM3(openprotein.BaseModel):
             labels_remapped = self.crfModel.decode(emissions, mask=mask)
             predicted_labels = list(map(remapped_labels_to_orginal_labels, labels_remapped))
             predicted_topologies = list(map(label_list_to_topology, predicted_labels))
-            if self.use_marg_prob:
-                marginal_probabilities = self.calculate_margin_probabilities(input_sequences).cpu()
-                predicted_types_tm = list(map(int, self.type_classier_tm.predict(marginal_probabilities)))
-                predicted_types_sp = list(map(int, self.type_classier_sp.predict(marginal_probabilities)))
-                predicted_types = list(map(get_type_from_tm_sp,zip(predicted_types_tm, predicted_types_sp)))
-            else:
-                predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
+            predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
         return predicted_labels, predicted_types if forced_types is None else forced_types, predicted_topologies
 
     def evaluate_model(self, data_loader):
@@ -424,7 +400,7 @@ class TMHMM3(openprotein.BaseModel):
         data = {}
         data['type_01loss_values'] = self.type_01loss_values
         data['topology_01loss_values'] = self.topology_01loss_values
-        data['confusion_matrix'] = confusion_matrix
+        data['confusion_matrix'] = confusion_matrix.tolist()
         write_out(data)
 
         return validation_loss, data, (protein_names, protein_aa_strings, protein_label_actual, protein_label_prediction)
@@ -432,37 +408,9 @@ class TMHMM3(openprotein.BaseModel):
     def post_process_prediction_data(self, prediction_data):
         data = []
         for (name, aa_string, actual, prediction) in zip(*prediction_data):
-            data.append("\n".join([">" + name,aa_string,actual,orginal_labels_to_fasta(prediction)]))
+            data.append("\n".join([">" + name, aa_string, actual, original_labels_to_fasta(prediction)]))
         return "\n".join(data)
 
-
-
-
-
-def is_sp(type_id):
-    if type_id == 0 or type_id == 3:
-        return 0
-    else:
-        return 1
-
-def is_tm(type_id):
-    if type_id == 0 or type_id == 1:
-        return 1
-    else:
-        return 0
-
-def get_type_from_tm_sp(t):
-    is_tm, is_sp = t
-    if is_tm ==  1:
-        if is_sp == 1:
-            return 1
-        else:
-            return 0
-    else:
-        if is_sp == 1:
-            return 2
-        else:
-            return 3
 
 class TMHMM3Mode(Enum):
     LSTM = 1
