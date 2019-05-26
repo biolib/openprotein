@@ -8,8 +8,7 @@ import argparse
 import importlib
 from dashboard import start_dashboard_server
 
-from tm_util import *
-from util import write_out
+from util import *
 
 print("------------------------")
 print("--- OpenProtein v0.1 ---")
@@ -23,7 +22,7 @@ parser.add_argument('--hide-ui', dest = 'hide_ui', action = 'store_true',
 parser.add_argument('--evaluate-on-test', dest = 'evaluate_on_test', action = 'store_true',
                     default=False, help='Run model of test data.')
 parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
-                    default=25, help='Evaluate model on validation set every n minibatches.')
+                    default=5, help='Evaluate model on validation set every n minibatches.')
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
                     default=100, help='Minimum number of minibatch iterations.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
