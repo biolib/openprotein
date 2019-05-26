@@ -256,8 +256,10 @@ def remapped_labels_to_orginal_labels(labels):
     for idx, pl in enumerate(labels):
         if pl >= 5 and pl < 45:
             labels[idx] = 0
-        if pl >= 45:
+        if pl >= 45 and pl < 85:
             labels[idx] = 1
+        if pl >= 85:
+            labels[idx] = 2
     return labels
 
 def orginal_labels_to_fasta(label_list):
