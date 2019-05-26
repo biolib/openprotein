@@ -26,7 +26,7 @@ parser.add_argument('--evaluate-on-test', dest = 'evaluate_on_test', action = 's
 parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
                     default=5, help='Evaluate model on validation set every n minibatches.')
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
-                    default=5000, help='Minimum number of minibatch iterations.')
+                    default=100, help='Minimum number of minibatch iterations.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
                     default=1, help='Size of each minibatch.')
 parser.add_argument('--learning-rate', dest = 'learning_rate', type=float,

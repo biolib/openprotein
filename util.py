@@ -68,6 +68,13 @@ def write_model_to_disk(model):
     torch.save(model,path)
     return path
 
+
+def write_prediction_data_to_disk(prediction_data):
+    filepath = "output/predictions/"+globals().get("experiment_id")+".txt"
+    output_file = open(filepath, 'w')
+    output_file.write(prediction_data)
+    output_file.close()
+
 def draw_plot(fig, plt, validation_dataset_size, sample_num, train_loss_values,
               validation_loss_values):
     def draw_with_vars():

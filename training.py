@@ -7,6 +7,7 @@
 from util import *
 import torch.optim as optim
 import requests
+import json
 
 def train_model(data_set_identifier, model, train_loader, validation_loader, learning_rate, minibatch_size=64, eval_interval=50, hide_ui=False, use_gpu=False, minimum_updates=1000):
     set_experiment_id(data_set_identifier, learning_rate, minibatch_size)
@@ -25,6 +26,7 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
     best_model_loss = 1e20
     best_model_minibatch_time = None
     best_model_path = None
+    best_json_data = None
     stopping_condition_met = False
     minibatches_proccesed = 0
 
@@ -47,21 +49,22 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
             model.zero_grad()
 
             # for every eval_interval samples, plot performance on the validation set
-            if minibatches_proccesed % eval_interval == 0:
+            if minibatches_proccesed % eval_interval == 0 and minibatches_proccesed * 4 > minimum_updates:
 
                 write_out("Testing model on validation set...")
 
-                train_loss = loss_tracker.mean()
+                train_loss = float(loss_tracker.mean())
                 loss_tracker = np.zeros(0)
-                validation_loss, json_data = model.evaluate_model(validation_loader)
+                validation_loss, json_data, _ = model.evaluate_model(validation_loader)
 
                 if validation_loss < best_model_loss:
                     best_model_loss = validation_loss
                     best_model_minibatch_time = minibatches_proccesed
                     best_model_path = write_model_to_disk(model)
+                    best_json_data = json_data
 
                 write_out("Validation loss:", validation_loss, "Train loss:", train_loss)
-                write_out("Best model so far (validation loss): ", validation_loss, "at time", best_model_minibatch_time)
+                write_out("Best model so far (validation loss): ", best_model_loss, "at time", best_model_minibatch_time)
                 write_out("Best model stored at " + best_model_path)
                 write_out("Minibatches processed:",minibatches_proccesed)
                 sample_num.append(minibatches_proccesed)
@@ -77,8 +80,9 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
                     if res.ok:
                         print(res.json())
 
-                if minibatches_proccesed > minimum_updates and minibatches_proccesed > best_model_minibatch_time * 2:
+                if minibatches_proccesed > minimum_updates and minibatches_proccesed >= best_model_minibatch_time + minimum_updates:
                     stopping_condition_met = True
                     break
     write_result_summary(best_model_loss)
+    write_result_summary(json.dumps(best_json_data))
     return best_model_path
