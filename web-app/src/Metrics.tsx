@@ -171,7 +171,6 @@ class Metrics extends React.Component<IMetricsProbs, any> {
                 lineConfig.data.datasets = []
                 lineConfig.options.scales.yAxes = []
                 let colors = ['rgb(255, 99, 132)', 'rgb(54, 162, 235)', 'rgb(101, 101, 101)', 'rgb(75, 192, 192)' , 'rgb(220, 220, 220)']
-                
                 lineConfig.options.scales.yAxes.push({
                     display: true,
                     id: 'y-axis-01loss',
@@ -180,7 +179,7 @@ class Metrics extends React.Component<IMetricsProbs, any> {
                         display: true,
                         labelString: '0-1 Loss'
                     },
-                    type: 'linear', // only linear but allow scale type registration. This allows extensions to exist solely for log scale for instance
+                    type: 'linear',
                 });
 
                 for (let datasetName of ['train_loss_values','validation_loss_values','drmsd_avg','rmsd_avg','type_01loss_values','label_01loss_values','topology_01loss_values']) {
@@ -192,7 +191,7 @@ class Metrics extends React.Component<IMetricsProbs, any> {
                             lineConfig.options.scales.yAxes.push({
                                 display: true,
                                 gridLines: {
-                                    drawOnChartArea: false, // only want the grid lines for one axis to show up
+                                    drawOnChartArea: false, // we only want one set of grid lines
                                 },
                                 id: yAxisName,
                                 position: 'left',
@@ -200,12 +199,11 @@ class Metrics extends React.Component<IMetricsProbs, any> {
                                     display: true,
                                     labelString: datasetName
                                 },
-                                type: 'linear', // only linear but allow scale type registration. This allows extensions to exist solely for log scale for instance
+                                type: 'linear',
                             });
                         } else {
                             yAxisName = 'y-axis-01loss'
                         }
-                       
                         lineConfig.data.datasets.push({
                             backgroundColor: colors[datasetId],
                             borderColor: colors[datasetId],
@@ -219,7 +217,6 @@ class Metrics extends React.Component<IMetricsProbs, any> {
                             label: datasetName,
                             yAxisID: yAxisName
                         });
-                        
                     }
                 }
 
@@ -228,7 +225,7 @@ class Metrics extends React.Component<IMetricsProbs, any> {
             } );
         }
 
-        const updateDataInterval = window.setInterval(update_data, 10000, this);
+        const updateDataInterval = window.setInterval(update_data, 5000, this);
 
         $.ajaxSetup({
             "error":() => {
