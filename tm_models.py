@@ -401,14 +401,14 @@ class TMHMM3(openprotein.BaseModel):
         data = {}
         data['type_01loss_values'] = self.type_01loss_values
         data['topology_01loss_values'] = self.topology_01loss_values
-
+        data['confusion_matrix'] = confusion_matrix
         write_out(data)
 
-        return validation_loss, data, [(protein_names, protein_aa_strings, protein_label_actual, protein_label_prediction),confusion_matrix]
+        return validation_loss, data, (protein_names, protein_aa_strings, protein_label_actual, protein_label_prediction)
 
     def post_process_prediction_data(self, prediction_data):
         data = []
-        for (name, aa_string, actual, prediction) in zip(*prediction_data[0]):
+        for (name, aa_string, actual, prediction) in zip(*prediction_data):
             data.append("\n".join([">" + name,aa_string,actual,orginal_labels_to_fasta(prediction)]))
         return "\n".join(data)
 

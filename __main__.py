@@ -157,7 +157,7 @@ for cv_partition in [0, 1, 2, 3, 4]:
         loss, json_data, prediction_data = model.evaluate_model(test_loader)
 
         write_prediction_data_to_disk(model.post_process_prediction_data(prediction_data))
-        result_matrix = prediction_data[1]
+        result_matrix = json_data['confusion_matrix']
         result_matrices += result_matrix
         write_out(result_matrix)
 
