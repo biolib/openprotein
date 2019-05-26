@@ -117,4 +117,6 @@ class BaseModel(nn.Module):
         data["rmsd_avg"] = self.historical_rmsd_avg_values
         data["drmsd_avg"] = self.historical_drmsd_avg_values
 
-        return (loss, data)
+        prediction_data = None
+
+        return (loss, data, prediction_data)
