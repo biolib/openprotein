@@ -368,7 +368,11 @@ class TMHMM3(openprotein.BaseModel):
                     else:
                         validation_topology_loss_tracker.append(1)
                         confusion_matrix[actual_type][predicted_type] += 1
-                    protein_label_prediction.append(predicted_labels[idx])
+                    # if the type was correctly guess 2 or 3 by the type classifier, use its topology prediction
+                    if (actual_type == 2 or actual_type == 3) and self.type_classifier is not None:
+                        protein_label_prediction.append(predicted_labels_type_classifer[idx])
+                    else:
+                        protein_label_prediction.append(predicted_labels[idx])
                 else:
                     confusion_matrix[actual_type][predicted_type] += 1
                     validation_type_loss_tracker.append(1)
