@@ -14,6 +14,7 @@ import openprotein
 from experiments.tmhmm3.tm_util import *
 from pytorchcrf.torchcrf import CRF
 from util import write_out
+import os
 
 # seed random generator for reproducibility
 torch.manual_seed(1)
@@ -317,10 +318,15 @@ class TMHMM3(openprotein.BaseModel):
                 tf_batch_sizes = tf.placeholder(tf.int32, shape=(emissions.size()[1]))
                 beam_decoded, _ = tf.nn.ctc_beam_search_decoder(tf_output, sequence_length=tf_batch_sizes)
                 decoded_topology = tf.sparse_tensor_to_dense(beam_decoded[0])
+                tmp = '-1'
+                if 'CUDA_VISIBLE_DEVICES' in os.environ:
+                    tmp = os.environ['CUDA_VISIBLE_DEVICES']
+                os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
                 with tf.Session() as session:
                     tf.global_variables_initializer().run()
                     decoded_topology = session.run(decoded_topology, feed_dict={tf_output: output.detach().cpu().numpy(), tf_batch_sizes: batch_sizes})
                     predicted_types = list(map(get_predicted_type_from_labels, decoded_topology))
+                os.environ['CUDA_VISIBLE_DEVICES'] = tmp
             else:
                 predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
 
