@@ -9,17 +9,18 @@ from torch.utils.data.dataset import Dataset
 import numpy as np
 import math
 import random
+
 from util import write_out
 
 class TMDataset(Dataset):
-    def __init__(self, aa_list, label_list, remapped_labels_list, type_list, topology_list, prot_name_list, original_aa_string_list, original_label_string):
+    def __init__(self, aa_list, label_list, remapped_labels_list_crf_hmm, remapped_labels_list_crf_marg, type_list, topology_list, prot_name_list, original_aa_string_list, original_label_string):
         assert len(aa_list) == len(label_list)
-        assert len(aa_list) == len(remapped_labels_list)
         assert len(aa_list) == len(type_list)
         assert len(aa_list) == len(topology_list)
         self.aa_list = aa_list
         self.label_list = label_list
-        self.remapped_labels_list = remapped_labels_list
+        self.remapped_labels_list_crf_hmm = remapped_labels_list_crf_hmm
+        self.remapped_labels_list_crf_marg = remapped_labels_list_crf_marg
         self.type_list = type_list
         self.topology_list = topology_list
         self.prot_name_list = prot_name_list
@@ -29,7 +30,8 @@ class TMDataset(Dataset):
     def __getitem__(self, index):
         return self.aa_list[index], \
                self.label_list[index], \
-               self.remapped_labels_list[index], \
+               self.remapped_labels_list_crf_hmm[index], \
+               self.remapped_labels_list_crf_marg[index], \
                self.type_list[index], \
                self.topology_list[index], \
                self.prot_name_list[index], \
@@ -44,16 +46,17 @@ class TMDataset(Dataset):
         for s in samples:
             samples_list.append(s)
         # sort according to length of aa sequence
-        samples_list.sort(key=lambda x: len(x[6]), reverse=True)
-        aa_list, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name, original_aa_string, original_label_string = zip(*samples_list)
+        samples_list.sort(key=lambda x: len(x[7]), reverse=True)
+        aa_list, labels_list, remapped_labels_list_crf_hmm, remapped_labels_list_crf_marg, prot_type_list, prot_topology_list, prot_name, original_aa_string, original_label_string = zip(*samples_list)
         write_out(prot_type_list)
-        return aa_list, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name, original_aa_string, original_label_string
+        return aa_list, labels_list, remapped_labels_list_crf_hmm, remapped_labels_list_crf_marg, prot_type_list, prot_topology_list, prot_name, original_aa_string, original_label_string
 
     def from_disk(dataset, use_gpu, re_map_labels=True):
         print("Constructing data set from disk...")
         aa_list = []
         labels_list = []
-        remapped_labels_list = []
+        remapped_labels_list_crf_hmm = []
+        remapped_labels_list_crf_marg = []
         prot_type_list = []
         prot_topology_list_all = []
         prot_aa_list_all = []
@@ -67,7 +70,7 @@ class TMDataset(Dataset):
             prot_labels_list_all.append(prot_original_label_list)
             aa_tmp_list_tensor = []
             labels = None
-            remapped_labels = None
+            remapped_labels_crf_hmm = None
             last_non_membrane_position = None
             if prot_original_label_list is not None:
                 labels = []
@@ -93,7 +96,7 @@ class TMDataset(Dataset):
                     else:
                         print("Error: unexpected label found:", topology_label, "for protein", prot_name)
                 labels = torch.LongTensor(labels)
-                remapped_labels = []
+                remapped_labels_crf_hmm = []
                 topology = label_list_to_topology(labels)
                 # given topology, now calculate remapped labels
                 for idx, (pos, l) in enumerate(topology):
@@ -101,42 +104,45 @@ class TMDataset(Dataset):
                         membrane_length = topology[idx+1][0]-pos
                         mm_beginning = 4
                         for i in range(mm_beginning):
-                            remapped_labels.append(5 + i)
+                            remapped_labels_crf_hmm.append(5 + i)
                         for i in range(40-(membrane_length-mm_beginning), 40):
-                            remapped_labels.append(5 + i)
+                            remapped_labels_crf_hmm.append(5 + i)
                     elif l == 1: # O -> I
                         membrane_length = topology[idx + 1][0] - pos
                         mm_beginning = 4
                         for i in range(mm_beginning):
-                            remapped_labels.append(45 + i)
+                            remapped_labels_crf_hmm.append(45 + i)
                         for i in range(40 - (membrane_length - mm_beginning), 40):
-                            remapped_labels.append(45 + i)
+                            remapped_labels_crf_hmm.append(45 + i)
                     elif l == 2: # S
                         signal_length = topology[idx + 1][0] - pos
-                        remapped_labels.append(2)
+                        remapped_labels_crf_hmm.append(2)
                         for i in range(signal_length - 1):
-                            remapped_labels.append(145 - ((signal_length - 1) - i))
+                            remapped_labels_crf_hmm.append(145 - ((signal_length - 1) - i))
                     else:
                         if idx == (len(topology) - 1):
                             for i in range(len(labels)-pos):
-                                remapped_labels.append(l)
+                                remapped_labels_crf_hmm.append(l)
                         else:
                             for i in range(topology[idx+1][0]-pos):
-                                remapped_labels.append(l)
-                remapped_labels = torch.LongTensor(remapped_labels)
+                                remapped_labels_crf_hmm.append(l)
+                remapped_labels_crf_hmm = torch.LongTensor(remapped_labels_crf_hmm)
                 # check that protein was properly parsed
-                assert remapped_labels.size() == labels.size()
+                assert remapped_labels_crf_hmm.size() == labels.size()
+
+                remapped_labels_crf_marg = []
             if use_gpu:
                 if labels is not None:
                     labels = labels.cuda()
-                if remapped_labels is not None:
-                    remapped_labels = remapped_labels.cuda()
+                remapped_labels_crf_hmm = remapped_labels_crf_hmm.cuda()
+                remapped_labels_crf_marg = remapped_labels_crf_marg.cuda()
             aa_list.append(aa_tmp_list_tensor)
             labels_list.append(labels)
-            remapped_labels_list.append(remapped_labels)
+            remapped_labels_list_crf_hmm.append(remapped_labels_crf_hmm)
+            remapped_labels_list_crf_marg.append(remapped_labels_crf_marg)
             prot_type_list.append(type_id)
             prot_topology_list_all.append(label_list_to_topology(labels))
-        return TMDataset(aa_list, labels_list, remapped_labels_list, prot_type_list, prot_topology_list_all, prot_name_list, prot_aa_list_all, prot_labels_list_all)
+        return TMDataset(aa_list, labels_list, remapped_labels_list_crf_hmm, remapped_labels_list_crf_marg, prot_type_list, prot_topology_list_all, prot_name_list, prot_aa_list_all, prot_labels_list_all)
 
 
 def tm_contruct_dataloader_from_disk(tm_dataset, minibatch_size, balance_classes=False):
@@ -178,7 +184,7 @@ class RandomBatchClassBalancedSequentialSampler(torch.utils.data.sampler.Sampler
         data_class_map[3] = []
 
         for idx in self.sampler:
-            data_class_map[self.dataset[idx][3]].append(idx)
+            data_class_map[self.dataset[idx][4]].append(idx)
 
         num_each_class = int(self.batch_size / 4)
 
@@ -254,7 +260,7 @@ def label_list_to_topology(labels):
     return top_list
 
 
-def remapped_labels_to_orginal_labels(labels):
+def remapped_labels_hmm_to_orginal_labels(labels):
     for idx, pl in enumerate(labels):
         if pl >= 5 and pl < 45:
             labels[idx] = 0
@@ -262,6 +268,11 @@ def remapped_labels_to_orginal_labels(labels):
             labels[idx] = 1
         if pl >= 85:
             labels[idx] = 2
+    return labels
+
+
+def remapped_labels_marg_to_orginal_labels(labels):
+    print("ERROR NOT IMPLEMENTED")
     return labels
 
 
@@ -414,13 +425,14 @@ def load_data_from_disk(partition_rotation=0):
 
 
 def normalize_confusion_matrix(confusion_matrix):
+    confusion_matrix = confusion_matrix.astype(np.float64)
     for i in range(4):
         sum = int(confusion_matrix[i].sum())
         if sum != 0:
-            confusion_matrix[4][i] /= sum
+            confusion_matrix[4][i] /= sum * 0.01 # 0.01 to convert to percentage
         for k in range(5):
             if sum != 0:
-                confusion_matrix[i][k] /= sum
+                confusion_matrix[i][k] /= sum * 0.01 # 0.01 to convert to percentage
             else:
                 confusion_matrix[i][k] = math.nan
-    return confusion_matrix
+    return confusion_matrix.round(2)

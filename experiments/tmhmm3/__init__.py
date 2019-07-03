@@ -25,7 +25,7 @@ def run_experiment(parser, use_gpu):
     parser.add_argument('--cv-partition', dest='cv_partition', type=int,
                         default=0, help='Run a particular cross validation rotation.')
     parser.add_argument('--model-mode', dest='model_mode', type=int,
-                        default=0, help='Which model to use.')
+                        default=2, help='Which model to use.')
     args, unknown = parser.parse_known_args()
 
     result_matrices = np.zeros((5, 5), dtype=np.int64)
@@ -37,6 +37,8 @@ def run_experiment(parser, use_gpu):
     elif args.model_mode == 2:
         model_mode = TMHMM3Mode.LSTM_CRF_HMM
     elif args.model_mode == 3:
+        model_mode = TMHMM3Mode.LSTM_CRF_MARG
+    elif args.model_mode == 4:
         model_mode = TMHMM3Mode.LSTM_CTC
     else:
         print("ERROR: No model defined")

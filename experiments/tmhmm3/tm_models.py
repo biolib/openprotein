@@ -264,9 +264,14 @@ class TMHMM3(openprotein.BaseModel):
         return mask
 
     def compute_loss(self, training_minibatch):
-        _, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name_list, original_aa_string, original_label_string = training_minibatch
+        _, labels_list, remapped_labels_list_crf_hmm, remapped_labels_list_crf_marg, prot_type_list, prot_topology_list, prot_name_list, original_aa_string, original_label_string = training_minibatch
         minibatch_size = len(labels_list)
-        labels_to_use = remapped_labels_list if self.model_mode == TMHMM3Mode.LSTM_CRF_HMM else labels_list
+        if self.model_mode == TMHMM3Mode.LSTM_CRF_MARG:
+            labels_to_use = remapped_labels_list_crf_marg
+        elif self.model_mode == TMHMM3Mode.LSTM_CRF_HMM:
+            labels_to_use = remapped_labels_list_crf_hmm
+        else:
+            labels_to_use = labels_list
         input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
         if self.model_mode == TMHMM3Mode.LSTM_CTC:
             # CTC loss
@@ -332,8 +337,13 @@ class TMHMM3(openprotein.BaseModel):
 
         else:
             mask = self.batch_sizes_to_mask(batch_sizes)
-            labels_remapped = self.crfModel.decode(emissions, mask=mask)
-            predicted_labels = list(map(remapped_labels_to_orginal_labels, labels_remapped))
+            labels_predicted = self.crfModel.decode(emissions, mask=mask)
+            if self.model_mode == TMHMM3Mode.LSTM_CRF_HMM:
+                predicted_labels = list(map(remapped_labels_hmm_to_orginal_labels, labels_predicted))
+            elif self.model_mode == TMHMM3Mode.LSTM_CRF_MARG:
+                predicted_labels = list(map(remapped_labels_marg_to_orginal_labels, labels_predicted))
+            else:
+                predicted_labels = labels_predicted
             predicted_topologies = list(map(label_list_to_topology, predicted_labels))
             predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
         return predicted_labels, predicted_types if forced_types is None else forced_types, predicted_topologies
@@ -351,7 +361,7 @@ class TMHMM3(openprotein.BaseModel):
             validation_loss_tracker.append(self.compute_loss(minibatch).detach())
 
 
-            _, labels_list, remapped_labels_list, prot_type_list, prot_topology_list, prot_name_list, original_aa_string, original_label_string = minibatch
+            _, labels_list, _, _, prot_type_list, prot_topology_list, prot_name_list, original_aa_string, original_label_string = minibatch
             predicted_labels, predicted_types, predicted_topologies = self(original_aa_string)
 
             protein_names.extend(prot_name_list)
@@ -421,9 +431,9 @@ class TMHMM3(openprotein.BaseModel):
             data.append("\n".join([">" + name, aa_string, actual, original_labels_to_fasta(prediction)]))
         return "\n".join(data)
 
-
 class TMHMM3Mode(Enum):
     LSTM = 1
     LSTM_CRF = 2
     LSTM_CRF_HMM = 3
-    LSTM_CTC = 4
+    LSTM_CRF_MARG = 4
+    LSTM_CTC = 5
