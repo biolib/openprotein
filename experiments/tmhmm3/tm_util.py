@@ -65,6 +65,9 @@ class TMDataset(Dataset):
         # sort according to length of aa sequence
         dataset.sort(key=lambda x: len(x[1]), reverse=True)
         for prot_name, prot_aa_list, prot_original_label_list, type_id, cluster_id in dataset:
+            if prot_name in ['P10040', 'Q96PD2']:
+                print("Discarding protein because of too long signal peptide")
+                continue
             prot_name_list.append(prot_name)
             prot_aa_list_all.append(prot_aa_list)
             prot_labels_list_all.append(prot_original_label_list)
@@ -119,6 +122,8 @@ class TMDataset(Dataset):
                         remapped_labels_crf_hmm.append(2)
                         for i in range(signal_length - 1):
                             remapped_labels_crf_hmm.append(145 - ((signal_length - 1) - i))
+                            if remapped_labels_crf_hmm[-1] == 80:
+                                print("Too long signal peptide region found")
                     else:
                         if idx == (len(topology) - 1):
                             for i in range(len(labels)-pos):
@@ -130,7 +135,7 @@ class TMDataset(Dataset):
                 # check that protein was properly parsed
                 assert remapped_labels_crf_hmm.size() == labels.size()
 
-                remapped_labels_crf_marg = []
+                remapped_labels_crf_marg = torch.tensor([])
             if use_gpu:
                 if labels is not None:
                     labels = labels.cuda()
@@ -342,8 +347,8 @@ def parse_3line_format(lines):
             prot_name = "> Unknown Protein Name"
         prot_aa_list = lines[i].upper()
         i += 1
-        if len(prot_aa_list) > 2000:
-            print("Discarding protein",prot_name,"as length larger than 2000:",len(prot_aa_list))
+        if len(prot_aa_list) > 6000:
+            print("Discarding protein",prot_name,"as length larger than 6000:",len(prot_aa_list))
         else:
             if i < len(lines) and not lines[i].__contains__(">"):
                 prot_topology_list = lines[i].upper()

@@ -26,7 +26,7 @@ parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
                     default=100, help='Minimum number of minibatch iterations.')
 parser.add_argument('--minibatch-size', dest = 'minibatch_size', type=int,
-                    default=5, help='Size of each minibatch.')
+                    default=10, help='Size of each minibatch.')
 parser.add_argument('--experiment-id', dest = 'experiment_id', type=str,
                     default="example", help='Which experiment to run.')
 args, unknown = parser.parse_known_args()
