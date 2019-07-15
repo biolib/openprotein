@@ -132,10 +132,15 @@ class TMDataset(Dataset):
                             for i in range(topology[idx+1][0]-pos):
                                 remapped_labels_crf_hmm.append(l)
                 remapped_labels_crf_hmm = torch.LongTensor(remapped_labels_crf_hmm)
+
+                remapped_labels_crf_marg = list([l + (type_id * 5) for l in labels])
+                remapped_labels_crf_marg = torch.LongTensor(remapped_labels_crf_marg)
+
                 # check that protein was properly parsed
                 assert remapped_labels_crf_hmm.size() == labels.size()
+                assert remapped_labels_crf_marg.size() == labels.size()
 
-                remapped_labels_crf_marg = torch.tensor([])
+
             if use_gpu:
                 if labels is not None:
                     labels = labels.cuda()
@@ -277,8 +282,7 @@ def remapped_labels_hmm_to_orginal_labels(labels):
 
 
 def remapped_labels_marg_to_orginal_labels(labels):
-    print("ERROR NOT IMPLEMENTED")
-    return labels
+    return list([l % 5 for l in labels])
 
 
 def original_labels_to_fasta(label_list):

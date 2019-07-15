@@ -28,6 +28,9 @@ class TMHMM3(openprotein.BaseModel):
         num_labels = 5
         if model_mode == TMHMM3Mode.LSTM_CRF_HMM:
             num_tags += 2 * 40 + 60
+        elif model_mode == TMHMM3Mode.LSTM_CRF_MARG:
+            num_tags = num_tags * 4 # 4 different types
+            num_labels = num_tags # 4 different types
         elif model_mode == TMHMM3Mode.LSTM_CTC:
             num_tags += 1 # add extra class for blank
             num_labels += 1
@@ -39,6 +42,9 @@ class TMHMM3(openprotein.BaseModel):
         self.embedding_function = nn.Embedding(24, self.get_embedding_size())
         self.bi_lstm = nn.LSTM(self.get_embedding_size(), self.hidden_size, num_layers=1, bidirectional=True)
         self.hidden_to_labels = nn.Linear(self.hidden_size * 2, num_labels) # * 2 for bidirectional
+
+        crf_start_mask = torch.ones(num_tags).byte()
+        crf_end_mask = torch.ones(num_tags).byte()
         if model_mode == TMHMM3Mode.LSTM_CRF_HMM:
             allowed_transitions = [
                 (3, 3), (4, 4),
@@ -59,10 +65,42 @@ class TMHMM3(openprotein.BaseModel):
             allowed_transitions.append((2, 144))
             allowed_transitions.append((2, 4))
             allowed_transitions.append((144, 4))
+
+            crf_start_mask[2] = 0
+            crf_start_mask[3] = 0
+            crf_start_mask[4] = 0
+            crf_end_mask[3] = 0
+            crf_end_mask[4] = 0
+        elif model_mode == TMHMM3Mode.LSTM_CRF_MARG:
+            allowed_transitions = [
+                (0, 0), (1, 1), (3, 3), (4, 4), (3, 0), (0, 4), (4, 1), (1, 3),
+                (5, 5), (6, 6), (7, 7), (8, 8), (9, 9), (8, 5), (5, 9), (9, 6), (6, 8), (7, 9),
+                (12, 12), (14, 14), (12, 14),
+                (18, 18),
+                ]
+            crf_start_mask[3] = 0
+            crf_start_mask[4] = 0
+            crf_start_mask[7] = 0
+            crf_start_mask[8] = 0
+            crf_start_mask[9] = 0
+            crf_start_mask[12] = 0
+            crf_start_mask[18] = 0
+            crf_end_mask[3] = 0
+            crf_end_mask[4] = 0
+            crf_end_mask[8] = 0
+            crf_end_mask[9] = 0
+            crf_end_mask[14] = 0
+            crf_end_mask[18] = 0
         else:
             allowed_transitions = [
                 (0, 0), (1, 1), (2, 2), (3, 3), (4, 4),
                 (3, 0), (0, 4), (4, 1), (1, 3), (2, 4)]
+
+            crf_start_mask[2] = 0
+            crf_start_mask[3] = 0
+            crf_start_mask[4] = 0
+            crf_end_mask[3] = 0
+            crf_end_mask[4] = 0
         self.allowed_transitions = allowed_transitions
         self.crfModel = CRF(num_tags)
         self.type_classifier = type_predictor_model
@@ -73,13 +111,6 @@ class TMHMM3(openprotein.BaseModel):
         self.label_01loss_values = []
         self.type_01loss_values = []
         self.topology_01loss_values = []
-        crf_start_mask = torch.ones(num_tags).byte()
-        crf_start_mask[2] = 0
-        crf_start_mask[3] = 0
-        crf_start_mask[4] = 0
-        crf_end_mask = torch.ones(num_tags).byte()
-        crf_end_mask[3] = 0
-        crf_end_mask[4] = 0
 
         # if on GPU, move state to GPU memory
         if self.use_gpu:
@@ -337,13 +368,17 @@ class TMHMM3(openprotein.BaseModel):
 
         else:
             mask = self.batch_sizes_to_mask(batch_sizes)
-            labels_predicted = self.crfModel.decode(emissions, mask=mask)
+
             if self.model_mode == TMHMM3Mode.LSTM_CRF_HMM:
+                labels_predicted = self.crfModel.decode(emissions, mask=mask)
                 predicted_labels = list(map(remapped_labels_hmm_to_orginal_labels, labels_predicted))
             elif self.model_mode == TMHMM3Mode.LSTM_CRF_MARG:
+                # TODO
+                type = self.crfModel.compute_marginal_probabilities(emissions, mask=mask)
+                labels_predicted = self.crfModel.decode(emissions, mask=mask)
                 predicted_labels = list(map(remapped_labels_marg_to_orginal_labels, labels_predicted))
             else:
-                predicted_labels = labels_predicted
+                predicted_labels = self.crfModel.decode(emissions, mask=mask)
             predicted_topologies = list(map(label_list_to_topology, predicted_labels))
             predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
         return predicted_labels, predicted_types if forced_types is None else forced_types, predicted_topologies

@@ -17,7 +17,7 @@ import numpy as np
 
 def run_experiment(parser, use_gpu):
     parser.add_argument('--minibatch-size-validation', dest='minibatch_size_validation', type=int,
-                        default=10, help='Size of each minibatch during evaluation.')
+                        default=20, help='Size of each minibatch during evaluation.')
     parser.add_argument('--hidden-size', dest='hidden_size', type=int,
                         default=64, help='Hidden size.')
     parser.add_argument('--learning-rate', dest='learning_rate', type=float,
@@ -25,7 +25,7 @@ def run_experiment(parser, use_gpu):
     parser.add_argument('--cv-partition', dest='cv_partition', type=int,
                         default=0, help='Run a particular cross validation rotation.')
     parser.add_argument('--model-mode', dest='model_mode', type=int,
-                        default=2, help='Which model to use.')
+                        default=3, help='Which model to use.')
     args, unknown = parser.parse_known_args()
 
     result_matrices = np.zeros((5, 5), dtype=np.int64)
