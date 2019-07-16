@@ -3,7 +3,6 @@
 # @author Jeppe Hallgren
 #
 # For license information, please see the LICENSE file in the root directory.
-
 from enum import Enum
 
 import tensorflow as tf
@@ -308,7 +307,9 @@ class TMHMM3(openprotein.BaseModel):
             # CTC loss
             emissions, batch_sizes = self._get_network_emissions(input_sequences)
             output = torch.nn.functional.log_softmax(emissions, dim=2)
-            topologies = list([torch.stack(list([label for (idx, label) in label_list_to_topology(a)])) for a in labels_list])
+            topologies = list([torch.LongTensor(list([label for (idx, label) in label_list_to_topology(a)])) for a in labels_list])
+            if self.use_gpu:
+                topologies = list([a.cuda() for a in topologies])
             targets, target_lengths = torch.nn.utils.rnn.pad_sequence(topologies).transpose(0,1), list([a.size()[0] for a in topologies])
             ctc_loss = nn.CTCLoss(blank=5)
             return ctc_loss(output, targets, tuple(batch_sizes), tuple(target_lengths))
@@ -372,15 +373,24 @@ class TMHMM3(openprotein.BaseModel):
             if self.model_mode == TMHMM3Mode.LSTM_CRF_HMM:
                 labels_predicted = self.crfModel.decode(emissions, mask=mask)
                 predicted_labels = list(map(remapped_labels_hmm_to_orginal_labels, labels_predicted))
+                predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
             elif self.model_mode == TMHMM3Mode.LSTM_CRF_MARG:
-                # TODO
-                type = self.crfModel.compute_marginal_probabilities(emissions, mask=mask)
-                labels_predicted = self.crfModel.decode(emissions, mask=mask)
-                predicted_labels = list(map(remapped_labels_marg_to_orginal_labels, labels_predicted))
+                alpha = self.crfModel._compute_log_alpha(emissions, mask, run_backwards=False)
+                z = alpha[alpha.size(0)-1] + self.crfModel.end_transitions
+                type = z.view((-1, 4, 5))
+                type = torch.logsumexp(type,dim=2)
+                max, predicted_types = torch.max(type, dim=1)
+
+                labels_predicted = list(torch.cuda.LongTensor(l) if self.use_gpu else torch.LongTensor(l) for l in self.crfModel.decode(emissions, mask=mask))
+
+                predicted_labels = list([l % 5 for l in labels_predicted]) # remap
+
             else:
                 predicted_labels = self.crfModel.decode(emissions, mask=mask)
+                predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
+
             predicted_topologies = list(map(label_list_to_topology, predicted_labels))
-            predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
+
         return predicted_labels, predicted_types if forced_types is None else forced_types, predicted_topologies
 
     def evaluate_model(self, data_loader):
@@ -394,7 +404,6 @@ class TMHMM3(openprotein.BaseModel):
         protein_label_prediction = []
         for i, minibatch in enumerate(data_loader, 0):
             validation_loss_tracker.append(self.compute_loss(minibatch).detach())
-
 
             _, labels_list, _, _, prot_type_list, prot_topology_list, prot_name_list, original_aa_string, original_label_string = minibatch
             predicted_labels, predicted_types, predicted_topologies = self(original_aa_string)

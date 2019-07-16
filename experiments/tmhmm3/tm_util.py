@@ -261,12 +261,14 @@ class RandomBatchSequentialSampler(torch.utils.data.sampler.Sampler):
 
 
 def label_list_to_topology(labels):
-    top_list = []
-    last_label = None
-    for idx, label in enumerate(labels):
-        if last_label is None or last_label != label:
-            top_list.append((idx, label))
-        last_label = label
+    if isinstance(labels, list):
+        labels = torch.LongTensor(labels)
+    unique, count = torch.unique_consecutive(labels, return_counts=True)
+    top_list = [(0, int(labels[0]))]
+    prev_count = 0
+    for i in range(1, unique.size(0)):
+        prev_count += int(count[i-1])
+        top_list.append((prev_count, int(unique[i])))
     return top_list
 
 
@@ -279,11 +281,6 @@ def remapped_labels_hmm_to_orginal_labels(labels):
         if pl >= 85:
             labels[idx] = 2
     return labels
-
-
-def remapped_labels_marg_to_orginal_labels(labels):
-    return list([l % 5 for l in labels])
-
 
 def original_labels_to_fasta(label_list):
     sequence = ""
