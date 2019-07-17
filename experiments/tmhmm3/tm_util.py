@@ -65,9 +65,6 @@ class TMDataset(Dataset):
         # sort according to length of aa sequence
         dataset.sort(key=lambda x: len(x[1]), reverse=True)
         for prot_name, prot_aa_list, prot_original_label_list, type_id, cluster_id in dataset:
-            if prot_name in ['P10040', 'Q96PD2']:
-                print("Discarding protein because of too long signal peptide")
-                continue
             prot_name_list.append(prot_name)
             prot_aa_list_all.append(prot_aa_list)
             prot_labels_list_all.append(prot_original_label_list)
@@ -350,6 +347,8 @@ def parse_3line_format(lines):
         i += 1
         if len(prot_aa_list) > 6000:
             print("Discarding protein",prot_name,"as length larger than 6000:",len(prot_aa_list))
+            if i < len(lines) and not lines[i].__contains__(">"):
+                i += 1
         else:
             if i < len(lines) and not lines[i].__contains__(">"):
                 prot_topology_list = lines[i].upper()
@@ -404,7 +403,7 @@ def calculate_partitions(partitions_count, cluster_partitions, types):
 
 def load_data_from_disk(partition_rotation=0):
     print("Loading data from disk...")
-    data = parse_datafile_from_disk('data/raw/TMHMM3.train.3line.clstr20')
+    data = parse_datafile_from_disk('data/raw/TMHMM3.train.3line.latest')
     data_unzipped = list(zip(*data))
     partitions = calculate_partitions(
         cluster_partitions=torch.LongTensor(np.array(data_unzipped[4])),
