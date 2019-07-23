@@ -29,7 +29,7 @@ class TMHMM3(openprotein.BaseModel):
             num_tags += 2 * 40 + 60
         elif model_mode == TMHMM3Mode.LSTM_CRF_MARG:
             num_tags = num_tags * 4 # 4 different types
-            num_labels = num_tags # 4 different types
+            #num_labels = num_tags # 4 different types
         elif model_mode == TMHMM3Mode.LSTM_CTC:
             num_tags += 1 # add extra class for blank
             num_labels += 1
@@ -282,6 +282,8 @@ class TMHMM3(openprotein.BaseModel):
             outin = torch.index_select(emissions, 1, autograd.Variable(outin_select))
             signal = torch.index_select(emissions, 1, autograd.Variable(signal_select))
             emissions = torch.cat((emissions, inout.expand(-1, 40), outin.expand(-1, 40), signal.expand(-1, 60)), 1)
+        elif self.model_mode == TMHMM3Mode.LSTM_CRF_MARG:
+            emissions = emissions.repeat(1,4)
         emissions_padded = torch.nn.utils.rnn.pad_packed_sequence(torch.nn.utils.rnn.PackedSequence(emissions,batch_sizes))
         return emissions_padded
 
