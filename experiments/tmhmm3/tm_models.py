@@ -258,18 +258,12 @@ class TMHMM3(openprotein.BaseModel):
                              autograd.Variable(initial_cell_state))
 
     def _get_network_emissions(self, input_sequences):
-
-        if self.embedding == "PYTORCH":
-            pad_seq, seq_length = torch.nn.utils.rnn.pad_sequence(input_sequences), [v.size(0) for v in input_sequences]
-            pad_seq_embed = self.embedding_function(pad_seq)
-            packed = torch.nn.utils.rnn.pack_padded_sequence(pad_seq_embed, seq_length)
-        else:
-            packed = torch.nn.utils.rnn.pack_sequence(input_sequences)
+        batch_sizes = torch.LongTensor(list([i.size(0) for i in input_sequences]))
+        pad_seq_embed = torch.nn.utils.rnn.pad_sequence(input_sequences)
         minibatch_size = len(input_sequences)
         self.init_hidden(minibatch_size)
-        bi_lstm_out, self.hidden_layer = self.bi_lstm(packed, self.hidden_layer)
-        data, batch_sizes, _, _ = bi_lstm_out
-        emissions = self.hidden_to_labels(data)
+        bi_lstm_out, self.hidden_layer = self.bi_lstm(pad_seq_embed, self.hidden_layer)
+        emissions = self.hidden_to_labels(bi_lstm_out)
         if self.model_mode == TMHMM3Mode.LSTM_CRF_HMM:
             inout_select = torch.LongTensor([0])
             outin_select = torch.LongTensor([1])
@@ -278,14 +272,13 @@ class TMHMM3(openprotein.BaseModel):
                 inout_select = inout_select.cuda()
                 outin_select = outin_select.cuda()
                 signal_select = signal_select.cuda()
-            inout = torch.index_select(emissions, 1, autograd.Variable(inout_select))
-            outin = torch.index_select(emissions, 1, autograd.Variable(outin_select))
-            signal = torch.index_select(emissions, 1, autograd.Variable(signal_select))
-            emissions = torch.cat((emissions, inout.expand(-1, 40), outin.expand(-1, 40), signal.expand(-1, 60)), 1)
+            inout = torch.index_select(emissions, 2, autograd.Variable(inout_select))
+            outin = torch.index_select(emissions, 2, autograd.Variable(outin_select))
+            signal = torch.index_select(emissions, 2, autograd.Variable(signal_select))
+            emissions = torch.cat((emissions, inout.expand(-1, len(batch_sizes), 40), outin.expand(-1, len(batch_sizes), 40), signal.expand(-1, len(batch_sizes), 60)), 2)
         elif self.model_mode == TMHMM3Mode.LSTM_CRF_MARG:
-            emissions = emissions.repeat(1,4)
-        emissions_padded = torch.nn.utils.rnn.pad_packed_sequence(torch.nn.utils.rnn.PackedSequence(emissions,batch_sizes))
-        return emissions_padded
+            emissions = emissions.repeat(1,1,4)
+        return emissions, batch_sizes
 
     def batch_sizes_to_mask(self, batch_sizes):
         mask = torch.autograd.Variable(torch.t(torch.ByteTensor(
@@ -344,13 +337,13 @@ class TMHMM3(openprotein.BaseModel):
                         write_out(" ")
             return loss
 
-    def forward(self, original_aa_string, forced_types=None):
-        input_sequences = [autograd.Variable(x) for x in self.embed(original_aa_string)]
+    def forward(self, input_sequences, forced_types=None):
         emissions, batch_sizes = self._get_network_emissions(input_sequences)
         if self.model_mode == TMHMM3Mode.LSTM_CTC or self.model_mode == TMHMM3Mode.LSTM:
             output = torch.nn.functional.log_softmax(emissions, dim=2)
             _, predicted_labels = output.max(dim=2)
             predicted_labels = list([list(map(int,x[:batch_sizes[idx]])) for idx, x in enumerate(predicted_labels.transpose(0,1))])
+            predicted_labels = list(torch.cuda.LongTensor(l) if self.use_gpu else torch.LongTensor(l) for l in predicted_labels)
             predicted_topologies = list(map(label_list_to_topology, predicted_labels))
             if forced_types is None and self.model_mode == TMHMM3Mode.LSTM_CTC:
                 tf_output = tf.placeholder(tf.float32, shape=emissions.size())
@@ -364,33 +357,32 @@ class TMHMM3(openprotein.BaseModel):
                 with tf.Session() as session:
                     tf.global_variables_initializer().run()
                     decoded_topology = session.run(decoded_topology, feed_dict={tf_output: output.detach().cpu().numpy(), tf_batch_sizes: batch_sizes})
-                    predicted_types = list(map(get_predicted_type_from_labels, decoded_topology))
+                    predicted_types = torch.LongTensor(list(map(get_predicted_type_from_labels, decoded_topology)))
                 os.environ['CUDA_VISIBLE_DEVICES'] = tmp
             else:
-                predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
+                predicted_types = torch.LongTensor(list(map(get_predicted_type_from_labels, predicted_labels)))
 
         else:
             mask = self.batch_sizes_to_mask(batch_sizes)
+            labels_predicted = list(torch.cuda.LongTensor(l) if self.use_gpu else torch.LongTensor(l) for l in
+                                    self.crfModel.decode(emissions, mask=mask))
 
             if self.model_mode == TMHMM3Mode.LSTM_CRF_HMM:
-                labels_predicted = self.crfModel.decode(emissions, mask=mask)
                 predicted_labels = list(map(remapped_labels_hmm_to_orginal_labels, labels_predicted))
-                predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
+                predicted_types = torch.LongTensor(list(map(get_predicted_type_from_labels, predicted_labels)))
             elif self.model_mode == TMHMM3Mode.LSTM_CRF_MARG:
                 alpha = self.crfModel._compute_log_alpha(emissions, mask, run_backwards=False)
                 z = alpha[alpha.size(0)-1] + self.crfModel.end_transitions
                 type = z.view((-1, 4, 5))
-                type = torch.logsumexp(type,dim=2)
+                type = self.logsumexp(type, dim=2)
                 max, predicted_types = torch.max(type, dim=1)
-
-                labels_predicted = list(torch.cuda.LongTensor(l) if self.use_gpu else torch.LongTensor(l) for l in self.crfModel.decode(emissions, mask=mask))
-
                 predicted_labels = list([l % 5 for l in labels_predicted]) # remap
-
             else:
-                predicted_labels = self.crfModel.decode(emissions, mask=mask)
-                predicted_types = list(map(get_predicted_type_from_labels, predicted_labels))
+                predicted_labels = labels_predicted
+                predicted_types = torch.LongTensor(list(map(get_predicted_type_from_labels, predicted_labels)))
 
+            if self.use_gpu:
+                predicted_types = predicted_types.cuda()
             predicted_topologies = list(map(label_list_to_topology, predicted_labels))
 
         return predicted_labels, predicted_types if forced_types is None else forced_types, predicted_topologies
@@ -408,7 +400,8 @@ class TMHMM3(openprotein.BaseModel):
             validation_loss_tracker.append(self.compute_loss(minibatch).detach())
 
             _, labels_list, _, _, prot_type_list, prot_topology_list, prot_name_list, original_aa_string, original_label_string = minibatch
-            predicted_labels, predicted_types, predicted_topologies = self(original_aa_string)
+            input_sequences = [x for x in self.embed(original_aa_string)]
+            predicted_labels, predicted_types, predicted_topologies = self(input_sequences)
 
             protein_names.extend(prot_name_list)
             protein_aa_strings.extend(original_aa_string)
@@ -476,6 +469,9 @@ class TMHMM3(openprotein.BaseModel):
         for (name, aa_string, actual, prediction) in zip(*prediction_data):
             data.append("\n".join([">" + name, aa_string, actual, original_labels_to_fasta(prediction)]))
         return "\n".join(data)
+
+    def logsumexp(self, data, dim):
+        return data.max(dim)[0] + torch.log(torch.sum(torch.exp(data - data.max(dim)[0].unsqueeze(dim)), dim))
 
 class TMHMM3Mode(Enum):
     LSTM = 1

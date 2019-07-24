@@ -261,11 +261,11 @@ def label_list_to_topology(labels):
     if isinstance(labels, list):
         labels = torch.LongTensor(labels)
     unique, count = torch.unique_consecutive(labels, return_counts=True)
-    top_list = [(0, int(labels[0]))]
+    top_list = [torch.LongTensor((0, int(labels[0])))]
     prev_count = 0
     for i in range(1, unique.size(0)):
         prev_count += int(count[i-1])
-        top_list.append((prev_count, int(unique[i])))
+        top_list.append(torch.LongTensor((prev_count, int(unique[i]))))
     return top_list
 
 
@@ -277,7 +277,7 @@ def remapped_labels_hmm_to_orginal_labels(labels):
             labels[idx] = 1
         if pl >= 85:
             labels[idx] = 2
-    return labels
+    return torch.LongTensor(labels)
 
 def original_labels_to_fasta(label_list):
     sequence = ""
