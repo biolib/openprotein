@@ -409,7 +409,7 @@ class TMHMM3(openprotein.BaseModel):
 
             # if we're using an external type predictor
             if self.type_classifier is not None:
-                predicted_labels_type_classifer, predicted_types, _ = self.type_classifier(original_aa_string)
+                predicted_labels_type_classifer, predicted_types, _ = self.type_classifier(input_sequences)
 
             for idx, actual_type in enumerate(prot_type_list):
                 predicted_type = predicted_types[idx]
