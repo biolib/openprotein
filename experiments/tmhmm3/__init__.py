@@ -82,7 +82,7 @@ def run_experiment(parser, use_gpu):
         train_loader = tm_contruct_dataloader_from_disk(train_preprocessed_set, args.minibatch_size,
                                                         balance_classes=True)
         validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set,
-                                                             args.minibatch_size_validation, balance_classes=True)
+                                                             args.minibatch_size_validation, balance_classes=False)
         test_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set,
                                                        args.minibatch_size_validation)  # TODO: replace this with test_preprocessed_set
 
