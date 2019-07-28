@@ -277,7 +277,9 @@ def remapped_labels_hmm_to_orginal_labels(labels):
             labels[idx] = 1
         if pl >= 85:
             labels[idx] = 2
-    return torch.LongTensor(labels)
+    if isinstance(labels, list):
+        labels = torch.LongTensor(labels)
+    return labels
 
 def original_labels_to_fasta(label_list):
     sequence = ""
