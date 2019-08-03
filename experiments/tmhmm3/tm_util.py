@@ -301,6 +301,8 @@ def original_labels_to_fasta(label_list):
 
 def get_predicted_type_from_labels(labels):
     labels = list([int(i) for i in labels])
+    if len(labels) == 0:
+        return 3
     if 0 in labels or 1 in labels:
         if labels[0] == 2:
             return 1
