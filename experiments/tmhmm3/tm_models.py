@@ -384,6 +384,11 @@ class TMHMM3(openprotein.BaseModel):
                 predicted_types = predicted_types.cuda()
             predicted_topologies = list(map(label_list_to_topology, predicted_labels))
 
+        # if all O's, change to all I's (by convention)
+        for idx, labels in enumerate(predicted_labels):
+            if torch.eq(labels, 4).all():
+                predicted_labels[idx] = labels - 1
+
         return predicted_labels, predicted_types if forced_types is None else forced_types, predicted_topologies
 
     def evaluate_model(self, data_loader):
