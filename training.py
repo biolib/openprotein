@@ -8,6 +8,7 @@ from util import *
 import torch.optim as optim
 import requests
 import json
+import time
 
 def train_model(data_set_identifier, model, train_loader, validation_loader, learning_rate, minibatch_size=64, eval_interval=50, hide_ui=False, use_gpu=False, minimum_updates=1000):
     set_experiment_id(data_set_identifier, learning_rate, minibatch_size)
@@ -71,11 +72,14 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
                 train_loss_values.append(train_loss)
                 validation_loss_values.append(validation_loss)
 
+                json_data["validation_dataset_size"] = validation_dataset_size
+                json_data["sample_num"] = sample_num
+                json_data["train_loss_values"] = train_loss_values
+                json_data["validation_loss_values"] = validation_loss_values
+
+                write_out(json_data)
+
                 if not hide_ui:
-                    json_data["validation_dataset_size"] = validation_dataset_size
-                    json_data["sample_num"] = sample_num
-                    json_data["train_loss_values"] = train_loss_values
-                    json_data["validation_loss_values"] = validation_loss_values
                     res = requests.post('http://localhost:5000/graph', json=json_data)
                     if res.ok:
                         print(res.json())

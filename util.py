@@ -12,7 +12,7 @@ import PeptideBuilder
 import Bio.PDB
 import math
 import numpy as np
-import time
+import os
 import pnerf.pnerf as pnerf
 
 AA_ID_DICT = {'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 8, 'K': 9,
@@ -50,6 +50,7 @@ class H5PytorchDataset(torch.utils.data.Dataset):
 
 def set_experiment_id(data_set_identifier, learning_rate, minibatch_size):
     output_string = datetime.now().strftime('%Y-%m-%d_%H_%M_%S')
+    output_string += "-" + str(os.getpid())
     output_string += "-" + data_set_identifier
     output_string += "-LR" + str(learning_rate).replace(".","_")
     output_string += "-MB" + str(minibatch_size)

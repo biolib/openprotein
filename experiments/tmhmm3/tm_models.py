@@ -464,7 +464,6 @@ class TMHMM3(openprotein.BaseModel):
         data['type_01loss_values'] = self.type_01loss_values
         data['topology_01loss_values'] = self.topology_01loss_values
         data['confusion_matrix'] = confusion_matrix.tolist()
-        write_out(data)
 
         return validation_loss, data, (protein_names, protein_aa_strings, protein_label_actual, protein_label_prediction)
 
