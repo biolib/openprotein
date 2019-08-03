@@ -87,7 +87,7 @@ def run_experiment(parser, use_gpu):
                                                        args.minibatch_size_validation)  # TODO: replace this with test_preprocessed_set
 
         train_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(train_preprocessed_set_TOPOLOGY, int(
-            args.minibatch_size / 8))  # use smaller minibatch size for topology
+            args.minibatch_size / 4))  # use smaller minibatch size for topology
         validation_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(validation_preprocessed_set_TOPOLOGY,
                                                                       args.minibatch_size_validation)
 
