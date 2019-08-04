@@ -341,7 +341,7 @@ class TMHMM3(openprotein.BaseModel):
         emissions, batch_sizes = self._get_network_emissions(input_sequences)
         if self.model_mode == TMHMM3Mode.LSTM_CTC or self.model_mode == TMHMM3Mode.LSTM:
             output = torch.nn.functional.log_softmax(emissions, dim=2)
-            _, predicted_labels = output.max(dim=2)
+            _, predicted_labels = output[:,:,0:5].max(dim=2)
             predicted_labels = list([list(map(int,x[:batch_sizes[idx]])) for idx, x in enumerate(predicted_labels.transpose(0,1))])
             predicted_labels = list(torch.cuda.LongTensor(l) if self.use_gpu else torch.LongTensor(l) for l in predicted_labels)
             predicted_topologies = list(map(label_list_to_topology, predicted_labels))
