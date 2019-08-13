@@ -5,7 +5,7 @@ A PyTorch framework for tertiary protein structure prediction.
 ![Alt text](examplemodelrun.png?raw=true "OpenProtein")
 
 ## Getting started
-To run this project, simply git clone the repository, install depedencies using `pipenv install` and then type `pipenv run python __main__.py` in the terminal to run the sample experiment:
+To run this project, simply git clone the repository, install dependencies using `pipenv install` and then type `pipenv run python __main__.py` in the terminal to run the sample experiment:
 ```
 $ pipenv run python __main__.py
 ------------------------
