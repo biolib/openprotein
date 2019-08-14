@@ -58,12 +58,12 @@ class TMHMM3(openprotein.BaseModel):
                 if i > 48 and i < 83:
                     allowed_transitions.append((48, i))
             allowed_transitions.append((84, 3))
-            for i in range(85, 144):
+            for i in range(85, 146):
                 allowed_transitions.append((i, i + 1))
                 allowed_transitions.append((2, i))
-            allowed_transitions.append((2, 144))
+            allowed_transitions.append((2, 146))
             allowed_transitions.append((2, 4))
-            allowed_transitions.append((144, 4))
+            allowed_transitions.append((146, 4))
 
             crf_start_mask[2] = 0
             crf_start_mask[3] = 0

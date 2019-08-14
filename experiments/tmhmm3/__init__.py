@@ -13,6 +13,7 @@ from models import *
 from training import train_model
 from util import write_out, set_experiment_id, load_model_from_disk
 import numpy as np
+import hashlib
 
 
 def run_experiment(parser, use_gpu):
@@ -26,6 +27,8 @@ def run_experiment(parser, use_gpu):
                         default=0, help='Run a particular cross validation rotation.')
     parser.add_argument('--model-mode', dest='model_mode', type=int,
                         default=3, help='Which model to use.')
+    parser.add_argument('--input-data', dest='input_data', type=str,
+                        default='data/raw/TMHMM3.train.3line.latest', help='Path of input data file.')
     args, unknown = parser.parse_known_args()
 
     result_matrices = np.zeros((5, 5), dtype=np.int64)
@@ -50,7 +53,7 @@ def run_experiment(parser, use_gpu):
 
     for cv_partition in [0, 1, 2, 3, 4]:
         # prepare data sets
-        train_set, val_set, test_set = load_data_from_disk(partition_rotation=cv_partition)
+        train_set, val_set, test_set = load_data_from_disk(filename=args.input_data, partition_rotation=cv_partition)
 
         # topology data set
         train_set_TOPOLOGY = list(filter(lambda x: x[3] is 0 or x[3] is 1, train_set))
@@ -64,7 +67,7 @@ def run_experiment(parser, use_gpu):
                   len(test_set), "test samples")
 
         print("Processing data...")
-        pre_processed_path = "data/preprocessed/preprocessed_data_cv" + str(cv_partition) + ".pickle"
+        pre_processed_path = "data/preprocessed/preprocessed_data_"+str(hashlib.sha256(args.input_data.encode()).hexdigest())[:8]+"_cv" + str(cv_partition) + ".pickle"
         if not os.path.isfile(pre_processed_path):
             input_data_processed = list([TMDataset.from_disk(set, use_gpu) for set in
                                          [train_set, val_set, test_set, train_set_TOPOLOGY, val_set_TOPOLOGY,

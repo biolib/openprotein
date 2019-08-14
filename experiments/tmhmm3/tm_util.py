@@ -118,9 +118,9 @@ class TMDataset(Dataset):
                         signal_length = topology[idx + 1][0] - pos
                         remapped_labels_crf_hmm.append(2)
                         for i in range(signal_length - 1):
-                            remapped_labels_crf_hmm.append(145 - ((signal_length - 1) - i))
+                            remapped_labels_crf_hmm.append(147 - ((signal_length - 1) - i))
                             if remapped_labels_crf_hmm[-1] == 80:
-                                print("Too long signal peptide region found")
+                                print("Too long signal peptide region found", prot_name)
                     else:
                         if idx == (len(topology) - 1):
                             for i in range(len(labels)-pos):
@@ -403,9 +403,9 @@ def calculate_partitions(partitions_count, cluster_partitions, types):
     return partition_assignments
 
 
-def load_data_from_disk(partition_rotation=0):
+def load_data_from_disk(filename, partition_rotation=0):
     print("Loading data from disk...")
-    data = parse_datafile_from_disk('data/raw/TMHMM3.train.3line.latest')
+    data = parse_datafile_from_disk(filename)
     data_unzipped = list(zip(*data))
     partitions = calculate_partitions(
         cluster_partitions=torch.LongTensor(np.array(data_unzipped[4])),
