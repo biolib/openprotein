@@ -5,7 +5,6 @@
 # For license information, please see the LICENSE file in the root directory.
 from enum import Enum
 
-import tensorflow as tf
 import torch.autograd as autograd
 import torch.nn as nn
 
@@ -346,6 +345,7 @@ class TMHMM3(openprotein.BaseModel):
             predicted_labels = list(torch.cuda.LongTensor(l) if self.use_gpu else torch.LongTensor(l) for l in predicted_labels)
             predicted_topologies = list(map(label_list_to_topology, predicted_labels))
             if forced_types is None and self.model_mode == TMHMM3Mode.LSTM_CTC:
+                import tensorflow as tf
                 tf_output = tf.placeholder(tf.float32, shape=emissions.size())
                 tf_batch_sizes = tf.placeholder(tf.int32, shape=(emissions.size()[1]))
                 beam_decoded, _ = tf.nn.ctc_beam_search_decoder(tf_output, sequence_length=tf_batch_sizes)
