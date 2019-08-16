@@ -118,8 +118,8 @@ class TMDataset(Dataset):
                         signal_length = topology[idx + 1][0] - pos
                         remapped_labels_crf_hmm.append(2)
                         for i in range(signal_length - 1):
-                            remapped_labels_crf_hmm.append(147 - ((signal_length - 1) - i))
-                            if remapped_labels_crf_hmm[-1] == 80:
+                            remapped_labels_crf_hmm.append(152 - ((signal_length - 1) - i))
+                            if remapped_labels_crf_hmm[-1] == 85:
                                 print("Too long signal peptide region found", prot_name)
                     else:
                         if idx == (len(topology) - 1):

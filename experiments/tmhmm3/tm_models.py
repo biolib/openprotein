@@ -24,8 +24,9 @@ class TMHMM3(openprotein.BaseModel):
         # initialize model variables
         num_tags = 5
         num_labels = 5
+        self.max_signal_length = 67
         if model_mode == TMHMM3Mode.LSTM_CRF_HMM:
-            num_tags += 2 * 40 + 62
+            num_tags += 2 * 40 + self.max_signal_length
         elif model_mode == TMHMM3Mode.LSTM_CRF_MARG:
             num_tags = num_tags * 4 # 4 different types
             #num_labels = num_tags # 4 different types
@@ -57,12 +58,12 @@ class TMHMM3(openprotein.BaseModel):
                 if i > 48 and i < 83:
                     allowed_transitions.append((48, i))
             allowed_transitions.append((84, 3))
-            for i in range(85, 146):
+            for i in range(85, 151):
                 allowed_transitions.append((i, i + 1))
                 allowed_transitions.append((2, i))
-            allowed_transitions.append((2, 146))
+            allowed_transitions.append((2, 151))
             allowed_transitions.append((2, 4))
-            allowed_transitions.append((146, 4))
+            allowed_transitions.append((151, 4))
 
             crf_start_mask[2] = 0
             crf_start_mask[3] = 0
@@ -274,7 +275,7 @@ class TMHMM3(openprotein.BaseModel):
             inout = torch.index_select(emissions, 2, autograd.Variable(inout_select))
             outin = torch.index_select(emissions, 2, autograd.Variable(outin_select))
             signal = torch.index_select(emissions, 2, autograd.Variable(signal_select))
-            emissions = torch.cat((emissions, inout.expand(-1, len(batch_sizes), 40), outin.expand(-1, len(batch_sizes), 40), signal.expand(-1, len(batch_sizes), 62)), 2)
+            emissions = torch.cat((emissions, inout.expand(-1, len(batch_sizes), 40), outin.expand(-1, len(batch_sizes), 40), signal.expand(-1, len(batch_sizes), self.max_signal_length)), 2)
         elif self.model_mode == TMHMM3Mode.LSTM_CRF_MARG:
             emissions = emissions.repeat(1,1,4)
         return emissions, batch_sizes
