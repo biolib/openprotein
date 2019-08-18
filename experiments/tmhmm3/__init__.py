@@ -22,7 +22,7 @@ def run_experiment(parser, use_gpu):
     parser.add_argument('--hidden-size', dest='hidden_size', type=int,
                         default=64, help='Hidden size.')
     parser.add_argument('--learning-rate', dest='learning_rate', type=float,
-                        default=0.01, help='Learning rate to use during training.')
+                        default=0.001, help='Learning rate to use during training.')
     parser.add_argument('--cv-partition', dest='cv_partition', type=int,
                         default=0, help='Run a particular cross validation rotation.')
     parser.add_argument('--model-mode', dest='model_mode', type=int,
@@ -85,7 +85,7 @@ def run_experiment(parser, use_gpu):
         train_loader = tm_contruct_dataloader_from_disk(train_preprocessed_set, args.minibatch_size,
                                                         balance_classes=True)
         validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set,
-                                                             args.minibatch_size_validation, balance_classes=False)
+                                                             args.minibatch_size_validation, balance_classes=True)
         test_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set,
                                                        args.minibatch_size_validation)  # TODO: replace this with test_preprocessed_set
 
