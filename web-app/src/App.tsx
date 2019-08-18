@@ -52,6 +52,11 @@ class App extends React.Component<IAppProb, IAppProb> {
           gridRow: "31 / 32",
       };
 
+      if (this.state.pdbData.true === undefined) {
+          mainPanelStyle["display"] = "none"
+          leftPanelStyle["gridColumn"] = "1"
+      }
+
       return (
       <div className="App">
           <div style={{display: "grid" , height: "100vh",}}>

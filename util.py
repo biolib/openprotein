@@ -56,6 +56,9 @@ def set_experiment_id(data_set_identifier, learning_rate, minibatch_size):
     output_string += "-MB" + str(minibatch_size)
     globals().__setitem__("experiment_id",output_string)
 
+def get_experiment_id():
+    return globals().get("experiment_id")
+
 def write_out(*args, end='\n'):
     output_string = datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ": " + str.join(" ", [str(a) for a in args]) + end
     if globals().get("experiment_id") is not None:
