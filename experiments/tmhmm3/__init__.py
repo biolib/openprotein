@@ -18,11 +18,11 @@ import hashlib
 
 def run_experiment(parser, use_gpu):
     parser.add_argument('--minibatch-size-validation', dest='minibatch_size_validation', type=int,
-                        default=10, help='Size of each minibatch during evaluation.')
+                        default=50, help='Size of each minibatch during evaluation.')
     parser.add_argument('--hidden-size', dest='hidden_size', type=int,
                         default=64, help='Hidden size.')
     parser.add_argument('--learning-rate', dest='learning_rate', type=float,
-                        default=0.01, help='Learning rate to use during training.')
+                        default=0.001, help='Learning rate to use during training.')
     parser.add_argument('--cv-partition', dest='cv_partition', type=int,
                         default=0, help='Run a particular cross validation rotation.')
     parser.add_argument('--model-mode', dest='model_mode', type=int,
@@ -87,12 +87,12 @@ def run_experiment(parser, use_gpu):
         train_loader = tm_contruct_dataloader_from_disk(train_preprocessed_set, args.minibatch_size,
                                                         balance_classes=True)
         validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set,
-                                                             args.minibatch_size_validation, balance_classes=False)
+                                                             args.minibatch_size_validation, balance_classes=True)
         test_loader = tm_contruct_dataloader_from_disk(test_preprocessed_set,
                                                        args.minibatch_size_validation)
 
         train_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(train_preprocessed_set_TOPOLOGY, int(
-            args.minibatch_size / 4))  # use smaller minibatch size for topology
+            args.minibatch_size / 2))  # use smaller minibatch size for topology
         validation_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(validation_preprocessed_set_TOPOLOGY,
                                                                       args.minibatch_size_validation)
 

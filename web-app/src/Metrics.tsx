@@ -15,6 +15,8 @@ class Metrics extends React.Component<IMetricsProbs, any> {
     // @ts-ignore
     private setPdbData : any;
 
+    private notFullWidth : boolean = false;
+
     constructor(props: any){
         super(props);
         this.setPdbData = this.props.setPdbData;
@@ -25,8 +27,11 @@ class Metrics extends React.Component<IMetricsProbs, any> {
 
         // @ts-ignore
         const ctx = document.getElementById("myChart").getContext('2d');
+
         // @ts-ignore
-        const ctx2 = document.getElementById("myChart2").getContext('2d');
+        const chart2Canvas = document.getElementById("myChart2")
+        // @ts-ignore
+        const ctx2 = chart2Canvas.getContext('2d');
 
         const lineConfig =  {
             data: {
@@ -149,7 +154,15 @@ class Metrics extends React.Component<IMetricsProbs, any> {
                     return;
                 }
 
+                if (data.pdb_data_true !== undefined) {
+                    // @ts-ignore
+                    app.notFullWidth = true
+                    // @ts-ignore
+                    app.forceUpdate();
+                }
+
                 app.setPdbData({true: data.pdb_data_true, pred: data.pdb_data_pred});
+
                 if (data.phi_actual) {
                     scatterConfig.data.datasets[0].data = data.phi_actual.map( (h: any, i: any) => {
                         return {
@@ -165,6 +178,12 @@ class Metrics extends React.Component<IMetricsProbs, any> {
                             y: data.psi_predicted[i],
                         };
                     });
+                }
+
+                if (data.phi_actual === undefined && data.phi_predicted === undefined) {
+                    if (chart2Canvas !== null) {
+                        chart2Canvas.style.display = "none"
+                    }
                 }
 
                 lineConfig.data.labels = data.sample_num
@@ -239,9 +258,13 @@ class Metrics extends React.Component<IMetricsProbs, any> {
     }
 
   public render() {
+      var width = "100vw"
+      if (this.notFullWidth) {
+          width = "40vw"
+      }
       return (
           <div className="Metrics">
-              <div className="chart-container" style={{width: "40vw", height: "100%"}}>
+              <div className="chart-container" style={{width: width, height: "100%"}}>
                   <canvas id="myChart"  />
                   <canvas id="myChart2"  />
               </div>

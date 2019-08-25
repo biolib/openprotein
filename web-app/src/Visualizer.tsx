@@ -48,7 +48,8 @@ class Visualizer extends React.Component<IVisualizeProb,any> {
           <div className="Visualizer" style={{width: "50vw", height: "100%"}}>
               <div id="viewport" style={{width: "100%", height: "100%"}} />
           </div>
-    );
+      );
+
   }
 }
 

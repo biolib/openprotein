@@ -11,7 +11,7 @@ import torch.nn as nn
 import openprotein
 from experiments.tmhmm3.tm_util import *
 from pytorchcrf.torchcrf import CRF
-from util import write_out
+from util import write_out, get_experiment_id
 import os
 
 # seed random generator for reproducibility
@@ -454,7 +454,7 @@ class TMHMM3(openprotein.BaseModel):
         self.type_01loss_values.append(type_loss)
         self.topology_01loss_values.append(topology_loss)
 
-        if self.type_classifier is None:
+        if "TYPE" in get_experiment_id():
             # optimize for type
             validation_loss = type_loss
         else:
