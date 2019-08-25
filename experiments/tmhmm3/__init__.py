@@ -29,6 +29,8 @@ def run_experiment(parser, use_gpu):
                         default=3, help='Which model to use.')
     parser.add_argument('--input-data', dest='input_data', type=str,
                         default='data/raw/TMHMM3.train.3line.latest', help='Path of input data file.')
+    parser.add_argument('--pre-trained-model-paths', dest='pre_trained_model_paths', type=str,
+                        default=None, help='Paths of pre-trained models.')
     args, unknown = parser.parse_known_args()
 
     result_matrices = np.zeros((5, 5), dtype=np.int64)
@@ -86,8 +88,8 @@ def run_experiment(parser, use_gpu):
                                                         balance_classes=True)
         validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set,
                                                              args.minibatch_size_validation, balance_classes=False)
-        test_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set,
-                                                       args.minibatch_size_validation)  # TODO: replace this with test_preprocessed_set
+        test_loader = tm_contruct_dataloader_from_disk(test_preprocessed_set,
+                                                       args.minibatch_size_validation)
 
         train_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(train_preprocessed_set_TOPOLOGY, int(
             args.minibatch_size / 4))  # use smaller minibatch size for topology
@@ -96,43 +98,47 @@ def run_experiment(parser, use_gpu):
 
         type_predictor_model_path = None
 
-        for (experiment_id, train_data, validation_data) in [
-            ("TRAIN_TYPE_CV" + str(cv_partition) + "-" + str(model_mode) + "-HS" + str(args.hidden_size), train_loader,
-             validation_loader),
-            ("TRAIN_TOPOLOGY_CV" + str(cv_partition) + "-" + str(model_mode) + "-HS" + str(args.hidden_size),
-             train_loader_TOPOLOGY, validation_loader_TOPOLOGY)]:
+        if args.pre_trained_model_paths is not None:
+            for (experiment_id, train_data, validation_data) in [
+                ("TRAIN_TYPE_CV" + str(cv_partition) + "-" + str(model_mode) + "-HS" + str(args.hidden_size), train_loader,
+                 validation_loader),
+                ("TRAIN_TOPOLOGY_CV" + str(cv_partition) + "-" + str(model_mode) + "-HS" + str(args.hidden_size),
+                 train_loader_TOPOLOGY, validation_loader_TOPOLOGY)]:
 
-            type_predictor = None
-            if type_predictor_model_path is not None:
-                type_predictor = load_model_from_disk(type_predictor_model_path, force_cpu=False)
+                type_predictor = None
+                if type_predictor_model_path is not None:
+                    type_predictor = load_model_from_disk(type_predictor_model_path, force_cpu=False)
 
-            model = TMHMM3(
-                embedding,
-                args.hidden_size,
-                use_gpu,
-                model_mode,
-                use_marg_prob,
-                type_predictor)
+                model = TMHMM3(
+                    embedding,
+                    args.hidden_size,
+                    use_gpu,
+                    model_mode,
+                    use_marg_prob,
+                    type_predictor)
 
-            model_path = train_model(data_set_identifier=experiment_id,
-                                     model=model,
-                                     train_loader=train_data,
-                                     validation_loader=validation_data,
-                                     learning_rate=args.learning_rate,
-                                     minibatch_size=args.minibatch_size,
-                                     eval_interval=args.eval_interval,
-                                     hide_ui=args.hide_ui,
-                                     use_gpu=use_gpu,
-                                     minimum_updates=args.minimum_updates)
+                model_path = train_model(data_set_identifier=experiment_id,
+                                         model=model,
+                                         train_loader=train_data,
+                                         validation_loader=validation_data,
+                                         learning_rate=args.learning_rate,
+                                         minibatch_size=args.minibatch_size,
+                                         eval_interval=args.eval_interval,
+                                         hide_ui=args.hide_ui,
+                                         use_gpu=use_gpu,
+                                         minimum_updates=args.minimum_updates)
 
-            # let the GC collect the model
-            del model
+                # let the GC collect the model
+                del model
 
-            write_out(model_path)
+                write_out(model_path)
 
-            # if we just trained a type predictor, save it for later
-            if "TRAIN_TYPE" in experiment_id:
-                type_predictor_model_path = model_path
+                # if we just trained a type predictor, save it for later
+                if "TRAIN_TYPE" in experiment_id:
+                    type_predictor_model_path = model_path
+        else:
+            # use the pre-trained model
+            model_path = args.pre_trained_model_paths.split(",")[cv_partition]
 
         # test model
         if args.evaluate_on_test:
