@@ -98,7 +98,7 @@ def run_experiment(parser, use_gpu):
 
         type_predictor_model_path = None
 
-        if args.pre_trained_model_paths is not None:
+        if args.pre_trained_model_paths is None:
             for (experiment_id, train_data, validation_data) in [
                 ("TRAIN_TYPE_CV" + str(cv_partition) + "-" + str(model_mode) + "-HS" + str(args.hidden_size), train_loader,
                  validation_loader),
