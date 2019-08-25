@@ -88,7 +88,7 @@ def run_experiment(parser, use_gpu):
                                                         balance_classes=True)
         validation_loader = tm_contruct_dataloader_from_disk(validation_preprocessed_set,
                                                              args.minibatch_size_validation, balance_classes=True)
-        test_loader = tm_contruct_dataloader_from_disk(test_preprocessed_set,
+        test_loader = tm_contruct_dataloader_from_disk(test_preprocessed_set if args.evaluate_on_test else validation_preprocessed_set,
                                                        args.minibatch_size_validation)
 
         train_loader_TOPOLOGY = tm_contruct_dataloader_from_disk(train_preprocessed_set_TOPOLOGY, int(
@@ -141,15 +141,14 @@ def run_experiment(parser, use_gpu):
             model_path = args.pre_trained_model_paths.split(",")[cv_partition]
 
         # test model
-        if args.evaluate_on_test:
-            write_out("Testing model of test set...")
-            model = load_model_from_disk(model_path, force_cpu=False)
-            loss, json_data, prediction_data = model.evaluate_model(test_loader)
+        write_out("Testing model...")
+        model = load_model_from_disk(model_path, force_cpu=False)
+        loss, json_data, prediction_data = model.evaluate_model(test_loader)
 
-            write_prediction_data_to_disk(model.post_process_prediction_data(prediction_data))
-            result_matrix = np.array(json_data['confusion_matrix'])
-            result_matrices += result_matrix
-            write_out(result_matrix)
+        write_prediction_data_to_disk(model.post_process_prediction_data(prediction_data))
+        result_matrix = np.array(json_data['confusion_matrix'])
+        result_matrices += result_matrix
+        write_out(result_matrix)
 
     set_experiment_id("TEST-" + str(model_mode) + "-HS" + str(args.hidden_size), args.learning_rate,
                       args.minibatch_size)
