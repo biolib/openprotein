@@ -454,7 +454,7 @@ class TMHMM3(openprotein.BaseModel):
         self.type_01loss_values.append(type_loss)
         self.topology_01loss_values.append(topology_loss)
 
-        if "TYPE" in get_experiment_id():
+        if get_experiment_id() is not None and "TYPE" in get_experiment_id():
             # optimize for type
             validation_loss = type_loss
         else:
