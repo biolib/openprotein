@@ -414,11 +414,23 @@ class TMHMM3(openprotein.BaseModel):
 
             # if we're using an external type predictor
             if self.type_classifier is not None:
-                predicted_labels_type_classifer, predicted_types, _ = self.type_classifier(input_sequences)
+                predicted_labels_type_classifer, predicted_types_type_classifier, predicted_topologies_type_classifier = self.type_classifier(input_sequences)
 
             for idx, actual_type in enumerate(prot_type_list):
+
                 predicted_type = predicted_types[idx]
-                prediction_topology_match = is_topologies_equal(prot_topology_list[idx], predicted_topologies[idx], 5)
+                predicted_topology = predicted_topologies[idx]
+                predicted_labels_for_protein = predicted_labels[idx]
+
+                if self.type_classifier is not None:
+                    if predicted_type != predicted_types_type_classifier[idx]:
+                        # we must always use the type predicted by the type predictor if available
+                        predicted_type = predicted_types_type_classifier[idx]
+                        predicted_topology = predicted_topologies_type_classifier[idx]
+                        predicted_labels_for_protein = predicted_labels_type_classifer[idx]
+
+                prediction_topology_match = is_topologies_equal(prot_topology_list[idx], predicted_topology, 5)
+
                 if actual_type == predicted_type:
                     validation_type_loss_tracker.append(0)
                     # if we guessed the type right for SP+GLOB or GLOB, we count the topology as correct
@@ -432,18 +444,12 @@ class TMHMM3(openprotein.BaseModel):
                     if (actual_type == 2 or actual_type == 3) and self.type_classifier is not None:
                         protein_label_prediction.append(predicted_labels_type_classifer[idx])
                     else:
-                        protein_label_prediction.append(predicted_labels[idx])
+                        protein_label_prediction.append(predicted_labels_for_protein)
                 else:
                     confusion_matrix[actual_type][predicted_type] += 1
                     validation_type_loss_tracker.append(1)
                     validation_topology_loss_tracker.append(1)
-                    if self.type_classifier is not None:
-                        # if the type prediction is wrong, we must use labels predicted by type predictor if available
-                        protein_label_prediction.append(predicted_labels_type_classifer[idx])
-                        if prediction_topology_match:
-                            confusion_matrix[4][actual_type] += 1
-                    else:
-                        protein_label_prediction.append(predicted_labels[idx])
+                    protein_label_prediction.append(predicted_labels_for_protein)
 
         write_out(confusion_matrix)
         loss = float(torch.stack(validation_loss_tracker).mean())
