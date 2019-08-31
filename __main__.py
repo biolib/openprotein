@@ -21,6 +21,8 @@ parser.add_argument('--hide-ui', dest = 'hide_ui', action = 'store_true',
                     default=False, help='Hide loss graph and visualization UI while training goes on.')
 parser.add_argument('--evaluate-on-test', dest = 'evaluate_on_test', action = 'store_true',
                     default=False, help='Run model of test data.')
+parser.add_argument('--use-gpu', dest = 'use_gpu', action = 'store_true',
+                    default=False, help='Use GPU.')
 parser.add_argument('--eval-interval', dest = 'eval_interval', type=int,
                     default=10, help='Evaluate model on validation set every n minibatches.')
 parser.add_argument('--min-updates', dest = 'minimum_updates', type=int,
@@ -34,10 +36,11 @@ args, unknown = parser.parse_known_args()
 if args.hide_ui:
     write_out("Live plot deactivated, see output folder for plot.")
 
-use_gpu = False
-if torch.cuda.is_available():
-    write_out("CUDA is available, using GPU")
-    use_gpu = True
+use_gpu = args.use_gpu
+
+if use_gpu and not torch.cuda.is_available():
+    write_out("Error: --use-gpu was set, but no GPU is available.")
+    exit(1)
 
 if not args.hide_ui:
     # start web server

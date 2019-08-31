@@ -101,9 +101,9 @@ def run_experiment(parser, use_gpu):
 
         if args.pre_trained_model_paths is None:
             for (experiment_id, train_data, validation_data) in [
-                ("TRAIN_TYPE_CV" + str(cv_partition) + "-" + str(model_mode) + "-HS" + str(args.hidden_size), train_loader,
+                ("TRAIN_TYPE_CV" + str(cv_partition) + "-" + str(model_mode) + "-HS" + str(args.hidden_size) + "-F" + str(args.input_data.split(".")[-2]), train_loader,
                  validation_loader),
-                ("TRAIN_TOPOLOGY_CV" + str(cv_partition) + "-" + str(model_mode) + "-HS" + str(args.hidden_size),
+                ("TRAIN_TOPOLOGY_CV" + str(cv_partition) + "-" + str(model_mode) + "-HS" + str(args.hidden_size) + "-F" + str(args.input_data.split(".")[-2]),
                  train_loader_TOPOLOGY, validation_loader_TOPOLOGY)]:
 
                 type_predictor = None
@@ -151,7 +151,7 @@ def run_experiment(parser, use_gpu):
         result_matrices += result_matrix
         write_out(result_matrix)
 
-    set_experiment_id("TEST-" + str(model_mode) + "-HS" + str(args.hidden_size), args.learning_rate,
+    set_experiment_id("TEST-" + str(model_mode) + "-HS" + str(args.hidden_size) + "-F" + str(args.input_data.split(".")[-2]), args.learning_rate,
                       args.minibatch_size)
     write_out(result_matrices)
     write_prediction_data_to_disk("\n".join(all_prediction_data))

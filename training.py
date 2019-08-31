@@ -50,7 +50,7 @@ def train_model(data_set_identifier, model, train_loader, validation_loader, lea
             model.zero_grad()
 
             # for every eval_interval samples, plot performance on the validation set
-            if minibatches_proccesed % eval_interval == 0 and minibatches_proccesed * 4 > minimum_updates:
+            if minibatches_proccesed % eval_interval == 0:
 
                 write_out("Testing model on validation set...")
 
