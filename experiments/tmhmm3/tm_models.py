@@ -12,6 +12,7 @@ import openprotein
 from experiments.tmhmm3.tm_util import *
 from pytorchcrf.torchcrf import CRF
 from util import write_out, get_experiment_id
+import tensorflow as tf
 import os
 
 # seed random generator for reproducibility
@@ -139,6 +140,15 @@ class TMHMM3(openprotein.BaseModel):
                                        start_transitions=crf_start_transitions,
                                        end_transitions=crf_end_transitions,
                                        transitions=crf_transitions)
+
+        config = tf.ConfigProto(
+            device_count={'GPU': 0}
+        )
+
+        # beam search is much faster on the CPU, disable GPU for this part
+        self.tf_session = tf.Session(config=config)
+        tf.global_variables_initializer().run(session=self.tf_session)
+
 
     def initialize_crf_parameters(self,
                                   crfModel,
@@ -346,19 +356,13 @@ class TMHMM3(openprotein.BaseModel):
             predicted_labels = list(torch.cuda.LongTensor(l) if self.use_gpu else torch.LongTensor(l) for l in predicted_labels)
             predicted_topologies = list(map(label_list_to_topology, predicted_labels))
             if forced_types is None and self.model_mode == TMHMM3Mode.LSTM_CTC:
-                import tensorflow as tf
+
                 tf_output = tf.placeholder(tf.float32, shape=emissions.size())
                 tf_batch_sizes = tf.placeholder(tf.int32, shape=(emissions.size()[1]))
-                beam_decoded, _ = tf.nn.ctc_beam_search_decoder(tf_output, sequence_length=tf_batch_sizes)
+                beam_decoded, _ = tf.nn.ctc_beam_search_decoder(tf_output, sequence_length=tf_batch_sizes, beam_width=10)
                 decoded_topology = tf.sparse_tensor_to_dense(beam_decoded[0])
-                # beam search is much faster on the CPU, disable GPU for this part
-                config = tf.ConfigProto(
-                    device_count={'GPU': 0}
-                )
-                with tf.Session(config=config) as session:
-                    tf.global_variables_initializer().run()
-                    decoded_topology = session.run(decoded_topology, feed_dict={tf_output: output.detach().cpu().numpy(), tf_batch_sizes: batch_sizes})
-                    predicted_types = torch.LongTensor(list(map(get_predicted_type_from_labels, decoded_topology)))
+                decoded_topology = self.tf_session.run(decoded_topology, feed_dict={tf_output: output.detach().cpu().numpy(), tf_batch_sizes: batch_sizes})
+                predicted_types = torch.LongTensor(list(map(get_predicted_type_from_labels, decoded_topology)))
             else:
                 predicted_types = torch.LongTensor(list(map(get_predicted_type_from_labels, predicted_labels)))
 
