@@ -12,7 +12,7 @@ import PeptideBuilder
 import Bio.PDB
 import math
 import numpy as np
-import time
+import os
 import pnerf.pnerf as pnerf
 
 AA_ID_DICT = {'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 8, 'K': 9,
@@ -50,10 +50,14 @@ class H5PytorchDataset(torch.utils.data.Dataset):
 
 def set_experiment_id(data_set_identifier, learning_rate, minibatch_size):
     output_string = datetime.now().strftime('%Y-%m-%d_%H_%M_%S')
+    output_string += "-" + str(os.getpid())
     output_string += "-" + data_set_identifier
     output_string += "-LR" + str(learning_rate).replace(".","_")
     output_string += "-MB" + str(minibatch_size)
     globals().__setitem__("experiment_id",output_string)
+
+def get_experiment_id():
+    return globals().get("experiment_id")
 
 def write_out(*args, end='\n'):
     output_string = datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ": " + str.join(" ", [str(a) for a in args]) + end
@@ -303,3 +307,17 @@ def pass_messages(aa_features, message_transformation, use_gpu):
     transformed = message_transformation(aa_msg_pairs).view(aa_count, aa_count - 1, -1)
     transformed_sum = transformed.sum(dim=1) # aa_count x output message size
     return transformed_sum
+
+def load_model_from_disk(path, force_cpu=True):
+    if force_cpu:
+        # load model with map_location set to storage (main mem)
+        model = torch.load(path, map_location=lambda storage, loc: storage)
+        # flattern parameters in memory
+        model.flatten_parameters()
+        # update internal state accordingly
+        model.use_gpu = False
+    else:
+        # load model using default map_location
+        model = torch.load(path)
+        model.flatten_parameters()
+    return model
