@@ -1,25 +1,37 @@
-# This file is part of the TMHMM3 project.
-#
-# @author Jeppe Hallgren
-#
-# For license information, please see the LICENSE file in the root directory.
-from enum import Enum
+"""
+This file is part of the OpenProtein project.
 
+For license information, please see the LICENSE file in the root directory.
+"""
+import sys
+from enum import Enum
+import numpy as np
+import torch
 import torch.autograd as autograd
 import torch.nn as nn
-
+import tensorflow as tf
 import openprotein
-from experiments.tmhmm3.tm_util import *
+from experiments.tmhmm3.tm_util import label_list_to_topology
+from experiments.tmhmm3.tm_util import get_predicted_type_from_labels
+from experiments.tmhmm3.tm_util import remapped_labels_hmm_to_orginal_labels
+from experiments.tmhmm3.tm_util import is_topologies_equal
+from experiments.tmhmm3.tm_util import original_labels_to_fasta
 from pytorchcrf.torchcrf import CRF
 from util import write_out, get_experiment_id
-import tensorflow as tf
-import os
+
 
 # seed random generator for reproducibility
 torch.manual_seed(1)
 
+
 class TMHMM3(openprotein.BaseModel):
-    def __init__(self, embedding, hidden_size, use_gpu, model_mode, use_marg_prob, type_predictor_model):
+    def __init__(self,
+                 embedding,
+                 hidden_size,
+                 use_gpu,
+                 model_mode,
+                 use_marg_prob,
+                 type_predictor_model):
         super(TMHMM3, self).__init__(embedding, use_gpu)
 
         # initialize model variables
@@ -29,8 +41,8 @@ class TMHMM3(openprotein.BaseModel):
         if model_mode == TMHMM3Mode.LSTM_CRF_HMM:
             num_tags += 2 * 40 + self.max_signal_length
         elif model_mode == TMHMM3Mode.LSTM_CRF_MARG:
-            num_tags = num_tags * 4 # 4 different types
-            #num_labels = num_tags # 4 different types
+            num_tags = num_tags * 4  # 4 different types
+            # num_labels = num_tags # 4 different types
         elif model_mode == TMHMM3Mode.LSTM_CTC:
             num_tags += 1 # add extra class for blank
             num_labels += 1
@@ -39,10 +51,15 @@ class TMHMM3(openprotein.BaseModel):
         self.use_marg_prob = use_marg_prob
         self.model_mode = model_mode
         self.embedding = embedding
-        self.embedding_function = nn.Embedding(24, self.get_embedding_size())
-        self.bi_lstm = nn.LSTM(self.get_embedding_size(), self.hidden_size, num_layers=1, bidirectional=True)
-        self.hidden_to_labels = nn.Linear(self.hidden_size * 2, num_labels) # * 2 for bidirectional
+        self.embedding_size = 24 # bloom matrix has size 24
 
+        self.embedding_function = nn.Embedding(24, self.get_embedding_size())
+        self.bi_lstm = nn.LSTM(self.get_embedding_size(),
+                               self.hidden_size,
+                               num_layers=1,
+                               bidirectional=True)
+        self.hidden_to_labels = nn.Linear(self.hidden_size * 2, num_labels)  # * 2 for bidirectional
+        self.hidden_layer = None
         crf_start_mask = torch.ones(num_tags).byte()
         crf_end_mask = torch.ones(num_tags).byte()
         if model_mode == TMHMM3Mode.LSTM_CRF_HMM:
@@ -51,12 +68,12 @@ class TMHMM3(openprotein.BaseModel):
                 (3, 5), (4, 45)]
             for i in range(5, 45 - 1):
                 allowed_transitions.append((i, i + 1))
-                if i > 8 and i < 43:
+                if 8 < i < 43:
                     allowed_transitions.append((8, i))
             allowed_transitions.append((44, 4))
             for i in range(45, 85 - 1):
                 allowed_transitions.append((i, i + 1))
-                if i > 48 and i < 83:
+                if 48 < i < 83:
                     allowed_transitions.append((48, i))
             allowed_transitions.append((84, 3))
             for i in range(85, 151):
@@ -77,7 +94,7 @@ class TMHMM3(openprotein.BaseModel):
                 (5, 5), (6, 6), (7, 7), (8, 8), (9, 9), (8, 5), (5, 9), (9, 6), (6, 8), (7, 9),
                 (12, 12), (14, 14), (12, 14),
                 (18, 18),
-                ]
+            ]
             crf_start_mask[3] = 0
             crf_start_mask[4] = 0
             crf_start_mask[7] = 0
@@ -102,7 +119,7 @@ class TMHMM3(openprotein.BaseModel):
             crf_end_mask[3] = 0
             crf_end_mask[4] = 0
         self.allowed_transitions = allowed_transitions
-        self.crfModel = CRF(num_tags)
+        self.crf_model = CRF(num_tags)
         self.type_classifier = type_predictor_model
         self.type_tm_classier = None
         self.type_sp_classier = None
@@ -115,7 +132,7 @@ class TMHMM3(openprotein.BaseModel):
         # if on GPU, move state to GPU memory
         if self.use_gpu:
             self.embedding_function = self.embedding_function.cuda()
-            self.crfModel = self.crfModel.cuda()
+            self.crf_model = self.crf_model.cuda()
             self.bi_lstm = self.bi_lstm.cuda()
             self.hidden_to_labels = self.hidden_to_labels.cuda()
             crf_transitions_mask = crf_transitions_mask.cuda()
@@ -128,57 +145,21 @@ class TMHMM3(openprotein.BaseModel):
                 if (i, k) in self.allowed_transitions:
                     crf_transitions_mask[i][k] = 0
 
-
         # generate masked transition parameters
         crf_start_transitions, crf_end_transitions, crf_transitions = \
             self.generate_masked_crf_transitions(
-                self.crfModel, (crf_start_mask, crf_transitions_mask, crf_end_mask)
+                self.crf_model, (crf_start_mask, crf_transitions_mask, crf_end_mask)
             )
 
         # initialize CRF
-        self.initialize_crf_parameters(self.crfModel,
+        self.initialize_crf_parameters(self.crf_model,
                                        start_transitions=crf_start_transitions,
                                        end_transitions=crf_end_transitions,
                                        transitions=crf_transitions)
 
-    def initialize_crf_parameters(self,
-                                  crfModel,
-                                  start_transitions=None,
-                                  end_transitions=None,
-                                  transitions=None) -> None:
-        """Initialize the transition parameters.
-
-        The parameters will be initialized randomly from a uniform distribution
-        between -0.1 and 0.1, unless given explicitly as an argument.
-        """
-        if start_transitions is None:
-            nn.init.uniform(crfModel.start_transitions, -0.1, 0.1)
-        else:
-            crfModel.start_transitions.data = start_transitions
-        if end_transitions is None:
-            nn.init.uniform(crfModel.end_transitions, -0.1, 0.1)
-        else:
-            crfModel.end_transitions.data = end_transitions
-        if transitions is None:
-            nn.init.uniform(crfModel.transitions, -0.1, 0.1)
-        else:
-            crfModel.transitions.data = transitions
-
-    def generate_masked_crf_transitions(self, crf_model, transition_mask):
-        start_transitions_mask, transitions_mask, end_transition_mask = transition_mask
-        start_transitions = crf_model.start_transitions.data.clone()
-        end_transitions = crf_model.end_transitions.data.clone()
-        transitions = crf_model.transitions.data.clone()
-        if start_transitions_mask is not None:
-            start_transitions.masked_fill_(start_transitions_mask, -100000000)
-        if end_transition_mask is not None:
-            end_transitions.masked_fill_(end_transition_mask, -100000000)
-        if transitions_mask is not None:
-            transitions.masked_fill_(transitions_mask, -100000000)
-        return start_transitions, end_transitions, transitions
 
     def get_embedding_size(self):
-        return 24 # bloom matrix has size 24
+        return self.embedding_size
 
     def flatten_parameters(self):
         self.bi_lstm.flatten_parameters()
@@ -188,31 +169,32 @@ class TMHMM3(openprotein.BaseModel):
             # blosum encoding
             if not globals().get('blosum_encoder'):
                 blosum = \
-"""4,-1,-2,-2,0,-1,-1,0,-2,-1,-1,-1,-1,-2,-1,1,0,-3,-2,0,-2,-1,0,-4
--1,5,0,-2,-3,1,0,-2,0,-3,-2,2,-1,-3,-2,-1,-1,-3,-2,-3,-1,0,-1,-4
--2,0,6,1,-3,0,0,0,1,-3,-3,0,-2,-3,-2,1,0,-4,-2,-3,3,0,-1,-4
--2,-2,1,6,-3,0,2,-1,-1,-3,-4,-1,-3,-3,-1,0,-1,-4,-3,-3,4,1,-1,-4
-0,-3,-3,-3,9,-3,-4,-3,-3,-1,-1,-3,-1,-2,-3,-1,-1,-2,-2,-1,-3,-3,-2,-4
--1,1,0,0,-3,5,2,-2,0,-3,-2,1,0,-3,-1,0,-1,-2,-1,-2,0,3,-1,-4
--1,0,0,2,-4,2,5,-2,0,-3,-3,1,-2,-3,-1,0,-1,-3,-2,-2,1,4,-1,-4
-0,-2,0,-1,-3,-2,-2,6,-2,-4,-4,-2,-3,-3,-2,0,-2,-2,-3,-3,-1,-2,-1,-4
--2,0,1,-1,-3,0,0,-2,8,-3,-3,-1,-2,-1,-2,-1,-2,-2,2,-3,0,0,-1,-4
--1,-3,-3,-3,-1,-3,-3,-4,-3,4,2,-3,1,0,-3,-2,-1,-3,-1,3,-3,-3,-1,-4
--1,-2,-3,-4,-1,-2,-3,-4,-3,2,4,-2,2,0,-3,-2,-1,-2,-1,1,-4,-3,-1,-4
--1,2,0,-1,-3,1,1,-2,-1,-3,-2,5,-1,-3,-1,0,-1,-3,-2,-2,0,1,-1,-4
--1,-1,-2,-3,-1,0,-2,-3,-2,1,2,-1,5,0,-2,-1,-1,-1,-1,1,-3,-1,-1,-4
--2,-3,-3,-3,-2,-3,-3,-3,-1,0,0,-3,0,6,-4,-2,-2,1,3,-1,-3,-3,-1,-4
--1,-2,-2,-1,-3,-1,-1,-2,-2,-3,-3,-1,-2,-4,7,-1,-1,-4,-3,-2,-2,-1,-2,-4
-1,-1,1,0,-1,0,0,0,-1,-2,-2,0,-1,-2,-1,4,1,-3,-2,-2,0,0,0,-4
-0,-1,0,-1,-1,-1,-1,-2,-2,-1,-1,-1,-1,-2,-1,1,5,-2,-2,0,-1,-1,0,-4
--3,-3,-4,-4,-2,-2,-3,-2,-2,-3,-2,-3,-1,1,-4,-3,-2,11,2,-3,-4,-3,-2,-4
--2,-2,-2,-3,-2,-1,-2,-3,2,-1,-1,-2,-1,3,-3,-2,-2,2,7,-1,-3,-2,-1,-4
-0,-3,-3,-3,-1,-2,-2,-3,-3,3,1,-2,1,-1,-2,-2,0,-3,-1,4,-3,-2,-1,-4
--2,-1,3,4,-3,0,1,-1,0,-3,-4,0,-3,-3,-2,0,-1,-4,-3,-3,4,1,-1,-4
--1,0,0,1,-3,3,4,-2,0,-3,-3,1,-1,-3,-1,0,-1,-3,-2,-2,1,4,-1,-4
-0,-1,-1,-1,-2,-1,-1,-1,-1,-1,-1,-1,-1,-1,-2,0,0,-2,-1,-1,-1,-1,-1,-4
--4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,1""".replace('\n', ',')
-                blosum_matrix = np.fromstring(blosum, sep=",").reshape(24,24)
+                    """4,-1,-2,-2,0,-1,-1,0,-2,-1,-1,-1,-1,-2,-1,1,0,-3,-2,0,-2,-1,0,-4
+                    -1,5,0,-2,-3,1,0,-2,0,-3,-2,2,-1,-3,-2,-1,-1,-3,-2,-3,-1,0,-1,-4
+                    -2,0,6,1,-3,0,0,0,1,-3,-3,0,-2,-3,-2,1,0,-4,-2,-3,3,0,-1,-4
+                    -2,-2,1,6,-3,0,2,-1,-1,-3,-4,-1,-3,-3,-1,0,-1,-4,-3,-3,4,1,-1,-4
+                    0,-3,-3,-3,9,-3,-4,-3,-3,-1,-1,-3,-1,-2,-3,-1,-1,-2,-2,-1,-3,-3,-2,-4
+                    -1,1,0,0,-3,5,2,-2,0,-3,-2,1,0,-3,-1,0,-1,-2,-1,-2,0,3,-1,-4
+                    -1,0,0,2,-4,2,5,-2,0,-3,-3,1,-2,-3,-1,0,-1,-3,-2,-2,1,4,-1,-4
+                    0,-2,0,-1,-3,-2,-2,6,-2,-4,-4,-2,-3,-3,-2,0,-2,-2,-3,-3,-1,-2,-1,-4
+                    -2,0,1,-1,-3,0,0,-2,8,-3,-3,-1,-2,-1,-2,-1,-2,-2,2,-3,0,0,-1,-4
+                    -1,-3,-3,-3,-1,-3,-3,-4,-3,4,2,-3,1,0,-3,-2,-1,-3,-1,3,-3,-3,-1,-4
+                    -1,-2,-3,-4,-1,-2,-3,-4,-3,2,4,-2,2,0,-3,-2,-1,-2,-1,1,-4,-3,-1,-4
+                    -1,2,0,-1,-3,1,1,-2,-1,-3,-2,5,-1,-3,-1,0,-1,-3,-2,-2,0,1,-1,-4
+                    -1,-1,-2,-3,-1,0,-2,-3,-2,1,2,-1,5,0,-2,-1,-1,-1,-1,1,-3,-1,-1,-4
+                    -2,-3,-3,-3,-2,-3,-3,-3,-1,0,0,-3,0,6,-4,-2,-2,1,3,-1,-3,-3,-1,-4
+                    -1,-2,-2,-1,-3,-1,-1,-2,-2,-3,-3,-1,-2,-4,7,-1,-1,-4,-3,-2,-2,-1,-2,-4
+                    1,-1,1,0,-1,0,0,0,-1,-2,-2,0,-1,-2,-1,4,1,-3,-2,-2,0,0,0,-4
+                    0,-1,0,-1,-1,-1,-1,-2,-2,-1,-1,-1,-1,-2,-1,1,5,-2,-2,0,-1,-1,0,-4
+                    -3,-3,-4,-4,-2,-2,-3,-2,-2,-3,-2,-3,-1,1,-4,-3,-2,11,2,-3,-4,-3,-2,-4
+                    -2,-2,-2,-3,-2,-1,-2,-3,2,-1,-1,-2,-1,3,-3,-2,-2,2,7,-1,-3,-2,-1,-4
+                    0,-3,-3,-3,-1,-2,-2,-3,-3,3,1,-2,1,-1,-2,-2,0,-3,-1,4,-3,-2,-1,-4
+                    -2,-1,3,4,-3,0,1,-1,0,-3,-4,0,-3,-3,-2,0,-1,-4,-3,-3,4,1,-1,-4
+                    -1,0,0,1,-3,3,4,-2,0,-3,-3,1,-1,-3,-1,0,-1,-3,-2,-2,1,4,-1,-4
+                    0,-1,-1,-1,-2,-1,-1,-1,-1,-1,-1,-1,-1,-1,-2,0,0,-2,-1,-1,-1,-1,-1,-4
+                    -4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,-4,1"""\
+                        .replace('\n', ',')
+                blosum_matrix = np.fromstring(blosum, sep=",").reshape(24, 24)
                 blosum_key = "A,R,N,D,C,Q,E,G,H,I,L,K,M,F,P,S,T,W,Y,V,B,Z,X,U".split(",")
                 key_map = {}
                 for idx, value in enumerate(blosum_key):
@@ -238,14 +220,14 @@ class TMHMM3(openprotein.BaseModel):
     def embed(self, prot_aa_list):
         embed_list = []
         for aa_list in prot_aa_list:
-            t = list([self.encode_amino_acid(aa) for aa in aa_list])
+            tensor = list([self.encode_amino_acid(aa) for aa in aa_list])
             if self.embedding == "PYTORCH":
-                t = torch.LongTensor(t)
+                tensor = torch.LongTensor(tensor)
             else:
-                t= torch.FloatTensor(t)
+                tensor = torch.FloatTensor(tensor)
             if self.use_gpu:
-                t = t.cuda()
-            embed_list.append(t)
+                tensor = tensor.cuda()
+            embed_list.append(tensor)
         return embed_list
 
     def init_hidden(self, minibatch_size):
@@ -276,21 +258,26 @@ class TMHMM3(openprotein.BaseModel):
             inout = torch.index_select(emissions, 2, autograd.Variable(inout_select))
             outin = torch.index_select(emissions, 2, autograd.Variable(outin_select))
             signal = torch.index_select(emissions, 2, autograd.Variable(signal_select))
-            emissions = torch.cat((emissions, inout.expand(-1, len(batch_sizes), 40), outin.expand(-1, len(batch_sizes), 40), signal.expand(-1, len(batch_sizes), self.max_signal_length)), 2)
+            emissions = torch.cat((emissions, inout.expand(-1, len(batch_sizes), 40),
+                                   outin.expand(-1, len(batch_sizes), 40),
+                                   signal.expand(-1, len(batch_sizes), self.max_signal_length)), 2)
         elif self.model_mode == TMHMM3Mode.LSTM_CRF_MARG:
-            emissions = emissions.repeat(1,1,4)
+            emissions = emissions.repeat(1, 1, 4)
         return emissions, batch_sizes
 
     def batch_sizes_to_mask(self, batch_sizes):
         mask = torch.autograd.Variable(torch.t(torch.ByteTensor(
-            [[1] * int(batch_size) + [0] * (int(batch_sizes[0]) - int(batch_size)) for batch_size in batch_sizes]
+            [[1] * int(batch_size) + [0] * (int(batch_sizes[0])
+                                            - int(batch_size)) for batch_size in batch_sizes]
         )))
         if self.use_gpu:
             mask = mask.cuda()
         return mask
 
     def compute_loss(self, training_minibatch):
-        _, labels_list, remapped_labels_list_crf_hmm, remapped_labels_list_crf_marg, prot_type_list, prot_topology_list, prot_name_list, original_aa_string, original_label_string = training_minibatch
+        _, labels_list, remapped_labels_list_crf_hmm, remapped_labels_list_crf_marg, \
+        _prot_type_list, _prot_topology_list, _prot_name_list, original_aa_string, \
+        _original_label_string = training_minibatch
         minibatch_size = len(labels_list)
         if self.model_mode == TMHMM3Mode.LSTM_CRF_MARG:
             labels_to_use = remapped_labels_list_crf_marg
@@ -303,37 +290,47 @@ class TMHMM3(openprotein.BaseModel):
             # CTC loss
             emissions, batch_sizes = self._get_network_emissions(input_sequences)
             output = torch.nn.functional.log_softmax(emissions, dim=2)
-            topologies = list([torch.LongTensor(list([label for (idx, label) in label_list_to_topology(a)])) for a in labels_list])
+            topologies = list(
+                [torch.LongTensor(list([label for (idx, label) in
+                                        label_list_to_topology(a)])) for a in labels_list])
             if self.use_gpu:
                 topologies = list([a.cuda() for a in topologies])
-            targets, target_lengths = torch.nn.utils.rnn.pad_sequence(topologies).transpose(0,1), list([a.size()[0] for a in topologies])
+            targets, target_lengths = torch.nn.utils.rnn.pad_sequence(topologies)\
+                                          .transpose(0, 1), list(
+                                              [a.size()[0] for a in topologies])
             ctc_loss = nn.CTCLoss(blank=5)
             return ctc_loss(output, targets, tuple(batch_sizes), tuple(target_lengths))
         else:
-            actual_labels = torch.nn.utils.rnn.pad_sequence([autograd.Variable(l) for l in labels_to_use])
+            actual_labels = torch.nn.utils.rnn.pad_sequence([autograd.Variable(l)
+                                                             for l in labels_to_use])
             emissions, batch_sizes = self._get_network_emissions(input_sequences)
             if self.model_mode == TMHMM3Mode.LSTM:
-                prediction = emissions.transpose(0,1).contiguous().view(-1, emissions.size(-1))
-                target = actual_labels.transpose(0,1).contiguous().view(-1, 1)
-                losses = -torch.gather(nn.functional.log_softmax(prediction), dim=1, index=target).view(*actual_labels.transpose(0,1).size())
-                mask_expand = torch.range(0, batch_sizes.data.max() - 1).long().unsqueeze(0).expand(batch_sizes.size(0), batch_sizes.data.max())
+                prediction = emissions.transpose(0, 1).contiguous().view(-1, emissions.size(-1))
+                target = actual_labels.transpose(0, 1).contiguous().view(-1, 1)
+                losses = -torch.gather(nn.functional.log_softmax(prediction),
+                                       dim=1, index=target).view(*actual_labels
+                                                                 .transpose(0, 1).size())
+                mask_expand = torch.range(0, batch_sizes.data.max() - 1).long()\
+                    .unsqueeze(0).expand(batch_sizes.size(0), batch_sizes.data.max())
                 if self.use_gpu:
                     mask_expand = mask_expand.cuda()
                     batch_sizes = batch_sizes.cuda()
                 mask = mask_expand < batch_sizes.unsqueeze(1).expand_as(mask_expand)
                 loss = (losses * mask.float()).sum() / batch_sizes.float().sum()
             else:
-                loss = -1 * self.crfModel(emissions, actual_labels, mask=self.batch_sizes_to_mask(batch_sizes)) / minibatch_size
+                mask = (self.batch_sizes_to_mask(batch_sizes))
+                loss = -1 * self.crf_model(emissions, actual_labels, mask=mask)/minibatch_size
                 if float(loss) > 100000:
                     for idx, batch_size in enumerate(batch_sizes):
                         last_label = None
                         for i in range(batch_size):
                             label = int(actual_labels[i][idx])
                             write_out(str(label) + ",", end='')
-                            if last_label is not None and (last_label, label) not in self.allowed_transitions:
+                            if last_label is not None and (last_label, label) \
+                                    not in self.allowed_transitions:
                                 write_out("Error: invalid transition found")
                                 write_out((last_label, label))
-                                exit()
+                                sys.exit(1)
                             last_label = label
                         write_out(" ")
             return loss
@@ -342,15 +339,21 @@ class TMHMM3(openprotein.BaseModel):
         emissions, batch_sizes = self._get_network_emissions(input_sequences)
         if self.model_mode == TMHMM3Mode.LSTM_CTC or self.model_mode == TMHMM3Mode.LSTM:
             output = torch.nn.functional.log_softmax(emissions, dim=2)
-            _, predicted_labels = output[:,:,0:5].max(dim=2)
-            predicted_labels = list([list(map(int,x[:batch_sizes[idx]])) for idx, x in enumerate(predicted_labels.transpose(0,1))])
-            predicted_labels = list(torch.cuda.LongTensor(l) if self.use_gpu else torch.LongTensor(l) for l in predicted_labels)
+            _, predicted_labels = output[:, :, 0:5].max(dim=2)
+            predicted_labels = list(
+                [list(map(int, x[:batch_sizes[idx]])) for idx, x in enumerate(predicted_labels
+                                                                              .transpose(0, 1))])
+            predicted_labels = list(
+                torch.cuda.LongTensor(l) if self.use_gpu else torch.LongTensor(l)
+                for l in predicted_labels)
             predicted_topologies = list(map(label_list_to_topology, predicted_labels))
             if forced_types is None and self.model_mode == TMHMM3Mode.LSTM_CTC:
 
                 tf_output = tf.placeholder(tf.float32, shape=emissions.size())
                 tf_batch_sizes = tf.placeholder(tf.int32, shape=(emissions.size()[1]))
-                beam_decoded, _ = tf.nn.ctc_beam_search_decoder(tf_output, sequence_length=tf_batch_sizes, beam_width=10)
+                beam_decoded, _ = tf.nn.ctc_beam_search_decoder(tf_output,
+                                                                sequence_length=tf_batch_sizes,
+                                                                beam_width=10)
                 decoded_topology = tf.sparse_tensor_to_dense(beam_decoded[0])
 
                 # beam search is much faster on the CPU, disable GPU for this part
@@ -360,29 +363,38 @@ class TMHMM3(openprotein.BaseModel):
 
                 with tf.Session(config=config) as tf_session:
                     tf.global_variables_initializer().run()
-                    decoded_topology = tf_session.run(decoded_topology, feed_dict={tf_output: output.detach().cpu().numpy(), tf_batch_sizes: batch_sizes})
-                    predicted_types = torch.LongTensor(list(map(get_predicted_type_from_labels, decoded_topology)))
+                    decoded_topology = tf_session.run(decoded_topology,
+                                                      feed_dict={tf_output: output.detach()
+                                                                            .cpu().numpy(),
+                                                                 tf_batch_sizes: batch_sizes})
+                    predicted_types = torch.LongTensor(list(map(get_predicted_type_from_labels,
+                                                                decoded_topology)))
             else:
-                predicted_types = torch.LongTensor(list(map(get_predicted_type_from_labels, predicted_labels)))
+                predicted_types = torch.LongTensor(list(map(get_predicted_type_from_labels,
+                                                            predicted_labels)))
 
         else:
             mask = self.batch_sizes_to_mask(batch_sizes)
-            labels_predicted = list(torch.cuda.LongTensor(l) if self.use_gpu else torch.LongTensor(l) for l in
-                                    self.crfModel.decode(emissions, mask=mask))
+            labels_predicted = list(torch.cuda.LongTensor(l) if self.use_gpu
+                                    else torch.LongTensor(l) for l in
+                                    self.crf_model.decode(emissions, mask=mask))
 
             if self.model_mode == TMHMM3Mode.LSTM_CRF_HMM:
-                predicted_labels = list(map(remapped_labels_hmm_to_orginal_labels, labels_predicted))
-                predicted_types = torch.LongTensor(list(map(get_predicted_type_from_labels, predicted_labels)))
+                predicted_labels = list(map(remapped_labels_hmm_to_orginal_labels,
+                                            labels_predicted))
+                predicted_types = torch.LongTensor(list(map(get_predicted_type_from_labels,
+                                                            predicted_labels)))
             elif self.model_mode == TMHMM3Mode.LSTM_CRF_MARG:
-                alpha = self.crfModel._compute_log_alpha(emissions, mask, run_backwards=False)
-                z = alpha[alpha.size(0)-1] + self.crfModel.end_transitions
-                type = z.view((-1, 4, 5))
-                type = self.logsumexp(type, dim=2)
-                max, predicted_types = torch.max(type, dim=1)
-                predicted_labels = list([l % 5 for l in labels_predicted]) # remap
+                alpha = self.crf_model._compute_log_alpha(emissions, mask, run_backwards=False)
+                z_value = alpha[alpha.size(0) - 1] + self.crf_model.end_transitions
+                types = z_value.view((-1, 4, 5))
+                types = self.logsumexp(types, dim=2)
+                _, predicted_types = torch.max(types, dim=1)
+                predicted_labels = list([l % 5 for l in labels_predicted])  # remap
             else:
                 predicted_labels = labels_predicted
-                predicted_types = torch.LongTensor(list(map(get_predicted_type_from_labels, predicted_labels)))
+                predicted_types = torch.LongTensor(list(map(get_predicted_type_from_labels,
+                                                            predicted_labels)))
 
             if self.use_gpu:
                 predicted_types = predicted_types.cuda()
@@ -393,21 +405,23 @@ class TMHMM3(openprotein.BaseModel):
             if torch.eq(labels, 4).all():
                 predicted_labels[idx] = labels - 1
 
-        return predicted_labels, predicted_types if forced_types is None else forced_types, predicted_topologies
+        return predicted_labels, predicted_types if forced_types \
+                                                    is None else forced_types, predicted_topologies
 
     def evaluate_model(self, data_loader):
         validation_loss_tracker = []
         validation_type_loss_tracker = []
         validation_topology_loss_tracker = []
-        confusion_matrix = np.zeros((5,5), dtype=np.int64)
+        confusion_matrix = np.zeros((5, 5), dtype=np.int64)
         protein_names = []
         protein_aa_strings = []
         protein_label_actual = []
         protein_label_prediction = []
-        for i, minibatch in enumerate(data_loader, 0):
+        for _, minibatch in enumerate(data_loader, 0):
             validation_loss_tracker.append(self.compute_loss(minibatch).detach())
 
-            _, labels_list, _, _, prot_type_list, prot_topology_list, prot_name_list, original_aa_string, original_label_string = minibatch
+            _, _, _, _, prot_type_list, prot_topology_list, \
+            prot_name_list, original_aa_string, original_label_string = minibatch
             input_sequences = [x for x in self.embed(original_aa_string)]
             predicted_labels, predicted_types, predicted_topologies = self(input_sequences)
 
@@ -417,7 +431,9 @@ class TMHMM3(openprotein.BaseModel):
 
             # if we're using an external type predictor
             if self.type_classifier is not None:
-                predicted_labels_type_classifer, predicted_types_type_classifier, predicted_topologies_type_classifier = self.type_classifier(input_sequences)
+                predicted_labels_type_classifer, \
+                predicted_types_type_classifier, \
+                predicted_topologies_type_classifier = self.type_classifier(input_sequences)
 
             for idx, actual_type in enumerate(prot_type_list):
 
@@ -432,22 +448,25 @@ class TMHMM3(openprotein.BaseModel):
                         predicted_topology = predicted_topologies_type_classifier[idx]
                         predicted_labels_for_protein = predicted_labels_type_classifer[idx]
 
-                prediction_topology_match = is_topologies_equal(prot_topology_list[idx], predicted_topology, 5)
+                    prediction_topology_match = is_topologies_equal(prot_topology_list[idx],
+                                                                    predicted_topology, 5)
 
-                if actual_type == predicted_type:
-                    validation_type_loss_tracker.append(0)
-                    # if we guessed the type right for SP+GLOB or GLOB, we count the topology as correct
-                    if actual_type == 2 or actual_type == 3 or prediction_topology_match:
-                        validation_topology_loss_tracker.append(0)
-                        confusion_matrix[actual_type][4] += 1
+                    if actual_type == predicted_type:
+                        validation_type_loss_tracker.append(0)
+                        # if we guessed the type right for SP+GLOB or GLOB,
+                        # count the topology as correct
+                        if actual_type == 2 or actual_type == 3 or prediction_topology_match:
+                            validation_topology_loss_tracker.append(0)
+                            confusion_matrix[actual_type][4] += 1
                     else:
                         validation_topology_loss_tracker.append(1)
                         confusion_matrix[actual_type][predicted_type] += 1
-                    # if the type was correctly guess 2 or 3 by the type classifier, use its topology prediction
-                    if (actual_type == 2 or actual_type == 3) and self.type_classifier is not None:
-                        protein_label_prediction.append(predicted_labels_type_classifer[idx])
-                    else:
-                        protein_label_prediction.append(predicted_labels_for_protein)
+                        # if the type was correctly guess 2 or 3 by the type classifier,
+                        # use its topology prediction
+                        if (actual_type in (2, 3)) and self.type_classifier is not None:
+                            protein_label_prediction.append(predicted_labels_type_classifer[idx])
+                        else:
+                            protein_label_prediction.append(predicted_labels_for_protein)
                 else:
                     confusion_matrix[actual_type][predicted_type] += 1
                     validation_type_loss_tracker.append(1)
@@ -455,7 +474,7 @@ class TMHMM3(openprotein.BaseModel):
                     protein_label_prediction.append(predicted_labels_for_protein)
 
         write_out(confusion_matrix)
-        loss = float(torch.stack(validation_loss_tracker).mean())
+        _loss = float(torch.stack(validation_loss_tracker).mean())
 
         type_loss = float(torch.FloatTensor(validation_type_loss_tracker).mean().detach())
         topology_loss = float(torch.FloatTensor(validation_topology_loss_tracker).mean().detach())
@@ -475,16 +494,57 @@ class TMHMM3(openprotein.BaseModel):
         data['topology_01loss_values'] = self.topology_01loss_values
         data['confusion_matrix'] = confusion_matrix.tolist()
 
-        return validation_loss, data, (protein_names, protein_aa_strings, protein_label_actual, protein_label_prediction)
+        return validation_loss, data, (
+            protein_names, protein_aa_strings, protein_label_actual, protein_label_prediction)
 
-    def post_process_prediction_data(self, prediction_data):
-        data = []
-        for (name, aa_string, actual, prediction) in zip(*prediction_data):
-            data.append("\n".join([">" + name, aa_string, actual, original_labels_to_fasta(prediction)]))
-        return "\n".join(data)
+def post_process_prediction_data(prediction_data):
+    data = []
+    for (name, aa_string, actual, prediction) in zip(*prediction_data):
+        data.append("\n".join([">" + name,
+                               aa_string,
+                               actual,
+                               original_labels_to_fasta(prediction)]))
+    return "\n".join(data)
 
-    def logsumexp(self, data, dim):
-        return data.max(dim)[0] + torch.log(torch.sum(torch.exp(data - data.max(dim)[0].unsqueeze(dim)), dim))
+def logsumexp(data, dim):
+    return data.max(dim)[0] + torch.log(torch.sum(
+        torch.exp(data - data.max(dim)[0].unsqueeze(dim)), dim))
+
+
+def initialize_crf_parameters(crf_model,
+                              start_transitions=None,
+                              end_transitions=None,
+                              transitions=None) -> None:
+    """Initialize the transition parameters.
+
+    The parameters will be initialized randomly from a uniform distribution
+    between -0.1 and 0.1, unless given explicitly as an argument.
+    """
+    if start_transitions is None:
+        nn.init.uniform(crf_model.start_transitions, -0.1, 0.1)
+    else:
+        crf_model.start_transitions.data = start_transitions
+    if end_transitions is None:
+        nn.init.uniform(crf_model.end_transitions, -0.1, 0.1)
+    else:
+        crf_model.end_transitions.data = end_transitions
+    if transitions is None:
+        nn.init.uniform(crf_model.transitions, -0.1, 0.1)
+    else:
+        crf_model.transitions.data = transitions
+
+def generate_masked_crf_transitions(crf_model, transition_mask):
+    start_transitions_mask, transitions_mask, end_transition_mask = transition_mask
+    start_transitions = crf_model.start_transitions.data.clone()
+    end_transitions = crf_model.end_transitions.data.clone()
+    transitions = crf_model.transitions.data.clone()
+    if start_transitions_mask is not None:
+        start_transitions.masked_fill_(start_transitions_mask, -100000000)
+    if end_transition_mask is not None:
+        end_transitions.masked_fill_(end_transition_mask, -100000000)
+    if transitions_mask is not None:
+        transitions.masked_fill_(transitions_mask, -100000000)
+    return start_transitions, end_transitions, transitions
 
 class TMHMM3Mode(Enum):
     LSTM = 1

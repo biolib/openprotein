@@ -1,0 +1,52 @@
+# This configuration file provides Pylint instructions on which warning codes to ignore.
+# Ideally, we wouldn't ignore any warnings, and over time the codes below should be removed from here.
+# However, currently, Pylint has a few known bugs related to Pytorch and Numpy that causes some negligible warnings.
+# Besides that, some warnings are ignored at this point because fixing them would require significant code changes.
+
+
+[MASTER]
+
+# Missing doc string warnings are disabled so that we can provide these at a later time and parse Pylint now.
+# C0115: disable warnings on missing-doc-string for classes.
+# C0116: disable warnings on missing-doc-string for methods.
+
+# W0108: disable warnings on 'Lambda may not be necessary (unnecessary-lambda)'.
+# W0201: disable warnings on 'defined outside __init__ (attribute-defined-outside-init)'.
+# W0212: disable warnings on 'Access to a protected member x of a client class (protected-access). Allows access to CRF._compute_log_alpha().
+# W0221: disable warnings on 'Parameters differ from overridden 'forward' method (arguments-differ)'.
+# W0231: disable warnings on '__init__ method from base class 'x' is not called (super-init-not-called)'.
+# W0603: disable warnings on use of keyword 'Global'. Security concerns related to this is negligible.
+
+# Some stylistic warnings below are ignored as of now since fixing these requires rewriting some of the logic in OpenProtein
+# R0801: disable warnings on 'Similar lines in 2 files'.
+# R0902: disable warnings on 'to many instance attributes'.
+# R0912: disable warnings on 'Too many branches (x/y) (too-many-branches)'.
+# R0913: disable warnings on 'Too many arguments (x/y) (too-many-arguments)'.
+# R0914: disable warnings on 'Too many local variables (too-many-locals)'.
+# R0915: disable warnings on 'Too many statements (x/y) (too-many-statements)'.
+# R1702: disable warnings on 'Too many nested blocks (6/5) (too-many-nested-blocks)'.
+# R1705: disable warnings on 'Unnecessary "else" after "return" (no-else-return)'.
+# R1710: disable warnings on 'Either all return statements in a function should return an expression, or none of them should. (inconsistent-return-statements)'.
+# R1721: disable warnings on 'Unnecessary use of a comprehension (unnecessary-comprehension)'.
+
+# Import errors like the ones below are ignored because its a bug in Pylint and not directly related to the actual code.
+# E0401: disable warnings on 'Unable to import X (import-error)'. .
+# E0611: disable warnings on 'No name 'x' in module 'y' (no-name-in-module)'. .
+# E1101: Class 'x' has no 'y' member (no-member).
+# E1102: disable warnings on function  (not-callable).
+# E1121: disable warnings on 'too many positional arguments for function call'.
+
+disable=C0115,C0116,W0108,W0201,W0212,W0221,W0231,W0603,R0902,R0912,R0913,R0914,R0915,R1702,R1705,E0401,R0801,R1710,R1721,E1101,E1102,E0401,E0611,E1102,E1121
+
+[TYPECHECK]
+
+# List of members who is set dynamically and missed by pylint inference
+# system, and so shouldn't trigger E1101 when accessed. Python regular
+# expressions are accepted.
+generated-members=numpy.*,torch.*
+
+[FORMAT]
+
+# Temporary solution to suppress warnings on single case letters. Each could be changed to a longer name.
+# Names i,k,l are OK in some for loops. Longer names might disrupt readability.
+good-names=dRMSD_list,RMSD_list,ax,TraceS,RMSD,ba,X,Y,R,S,E0,bc,n,m,s,i,k,l

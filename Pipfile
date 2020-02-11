@@ -15,6 +15,7 @@ peptidebuilder = "*"
 biopython = "<=1.68"
 requests = "*"
 tensorflow = "*"
+pylint = "~=2.4.4"
 
 [requires]
 python_version = "3.7"

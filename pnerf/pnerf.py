@@ -46,7 +46,7 @@ def dihedral_to_point(dihedral, use_gpu, bond_lengths=BOND_LENGTHS,
 
     point = torch.stack([point_x, point_y, point_z])
     point_perm = point.permute(1, 3, 2, 0)
-    point_final = point_perm.contiguous().view(num_steps*NUM_DIHEDRALS,
+    point_final = point_perm.contiguous().view(num_steps * NUM_DIHEDRALS,
                                                batch_size,
                                                NUM_DIMENSIONS)
     return point_final
@@ -72,7 +72,7 @@ def point_to_coordinate(points, use_gpu, num_fragments=6):
     """
 
     # Compute optimal number of fragments if needed
-    total_num_angles = points.shape[0] # NUM_STEPS x NUM_DIHEDRALS
+    total_num_angles = points.shape[0]  # NUM_STEPS x NUM_DIHEDRALS
     if num_fragments is None:
         num_fragments = int(math.sqrt(total_num_angles))
 
@@ -81,22 +81,24 @@ def point_to_coordinate(points, use_gpu, num_fragments=6):
     Triplet = collections.namedtuple('Triplet', 'a, b, c')
     batch_size = points.shape[1]
     init_matrix = np.array([[-np.sqrt(1.0 / 2.0), np.sqrt(3.0 / 2.0), 0],
-                         [-np.sqrt(2.0), 0, 0], [0, 0, 0]],
-                        dtype=np.float32)
+                            [-np.sqrt(2.0), 0, 0], [0, 0, 0]],
+                           dtype=np.float32)
     init_matrix = torch.from_numpy(init_matrix)
     if use_gpu:
         init_matrix = init_matrix.cuda()
     init_coords = [row.repeat([num_fragments * batch_size, 1])
-                      .view(num_fragments, batch_size, NUM_DIMENSIONS)
+                   .view(num_fragments, batch_size, NUM_DIMENSIONS)
                    for row in init_matrix]
-    init_coords = Triplet(*init_coords)                                     # NUM_DIHEDRALS x [NUM_FRAGS, BATCH_SIZE, NUM_DIMENSIONS]
+    init_coords = Triplet(*init_coords)  # NUM_DIHEDRALS x [NUM_FRAGS, BATCH_SIZE, NUM_DIMENSIONS]
 
     # Pad points to yield equal-sized fragments
-    padding = ((num_fragments - (total_num_angles % num_fragments))
-               % num_fragments)                                             # (NUM_FRAGS x FRAG_SIZE) - (NUM_STEPS x NUM_DIHEDRALS)
-    points = F.pad(points, (0, 0, 0, 0, 0, padding))                        # [NUM_FRAGS x FRAG_SIZE, BATCH_SIZE, NUM_DIMENSIONS]
-    points = points.view(num_fragments, -1, batch_size, NUM_DIMENSIONS)     # [NUM_FRAGS, FRAG_SIZE, BATCH_SIZE, NUM_DIMENSIONS]
-    points = points.permute(1, 0, 2, 3)                                     # [FRAG_SIZE, NUM_FRAGS, BATCH_SIZE, NUM_DIMENSIONS]
+    # (NUM_FRAGS x FRAG_SIZE) - (NUM_STEPS x NUM_DIHEDRALS)
+    padding = ((num_fragments - (total_num_angles % num_fragments)) % num_fragments)
+    # [NUM_FRAGS x FRAG_SIZE, BATCH_SIZE, NUM_DIMENSIONS]
+    points = F.pad(points, (0, 0, 0, 0, 0, padding))
+    points = points.view(num_fragments, -1, batch_size,
+                         NUM_DIMENSIONS)  # [NUM_FRAGS, FRAG_SIZE, BATCH_SIZE, NUM_DIMENSIONS]
+    points = points.permute(1, 0, 2, 3)  # [FRAG_SIZE, NUM_FRAGS, BATCH_SIZE, NUM_DIMENSIONS]
 
     # Extension function used for single atom reconstruction and whole fragment
     # alignment
@@ -120,9 +122,9 @@ def point_to_coordinate(points, use_gpu, num_fragments=6):
         bc = F.normalize(prev_three_coords.c - prev_three_coords.b, dim=-1)
         n = F.normalize(torch.cross(prev_three_coords.b - prev_three_coords.a,
                                     bc), dim=-1)
-        if multi_m:     # multiple fragments, one atom at a time
+        if multi_m:  # multiple fragments, one atom at a time
             m = torch.stack([bc, torch.cross(n, bc), n]).permute(1, 2, 3, 0)
-        else:           # single fragment, reconstructed entirely at once.
+        else:  # single fragment, reconstructed entirely at once.
             s = point.shape + (3,)
             m = torch.stack([bc, torch.cross(n, bc), n]).permute(1, 2, 0)
             m = m.repeat(s[0], 1, 1).view(s)
@@ -132,12 +134,12 @@ def point_to_coordinate(points, use_gpu, num_fragments=6):
 
     # Loop over FRAG_SIZE in NUM_FRAGS parallel fragments, sequentially
     # generating the coordinates for each fragment across all batches
-    coords_list = [None] * points.shape[0]                                  # FRAG_SIZE x [NUM_FRAGS, BATCH_SIZE, NUM_DIMENSIONS]
+    coords_list = [None] * points.shape[0]  # FRAG_SIZE x [NUM_FRAGS, BATCH_SIZE, NUM_DIMENSIONS]
     prev_three_coords = init_coords
 
-    for i in range(points.shape[0]):    # Iterate over FRAG_SIZE
-        coord = extend(prev_three_coords, points[i], True)
-        coords_list[i] = coord
+    for idx in range(points.shape[0]):  # Iterate over FRAG_SIZE
+        coord = extend(prev_three_coords, points[idx], True)
+        coords_list[idx] = coord
         prev_three_coords = Triplet(prev_three_coords.b,
                                     prev_three_coords.c,
                                     coord)
@@ -148,14 +150,14 @@ def point_to_coordinate(points, use_gpu, num_fragments=6):
     # next fragment, we transform the fragments we have already iterated over
     # (coords_trans) to be aligned with the next fragment
     coords_trans = coords_pretrans[-1]
-    for i in reversed(range(coords_pretrans.shape[0]-1)):
+    for idx in reversed(range(coords_pretrans.shape[0] - 1)):
         # Transform the fragments that we have already iterated over to be
         # aligned with the next fragment `coords_trans`
-        transformed_coords = extend(Triplet(*[di[i]
+        transformed_coords = extend(Triplet(*[di[idx]
                                               for di in prev_three_coords]),
                                     coords_trans, False)
-        coords_trans = torch.cat([coords_pretrans[i], transformed_coords], 0)
+        coords_trans = torch.cat([coords_pretrans[idx], transformed_coords], 0)
 
-    coords = F.pad(coords_trans[:total_num_angles-1], (0, 0, 0, 0, 1, 0))
+    coords = F.pad(coords_trans[:total_num_angles - 1], (0, 0, 0, 0, 1, 0))
 
     return coords
