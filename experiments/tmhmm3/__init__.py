@@ -16,7 +16,7 @@ def run_experiment(parser, use_gpu):
     parser.add_argument('--minibatch-size-validation',
                         dest='minibatch_size_validation',
                         type=int,
-                        default=50,
+                        default=8,
                         help='Size of each minibatch during evaluation.')
     parser.add_argument('--hidden-size',
                         dest='hidden_size',
@@ -36,7 +36,7 @@ def run_experiment(parser, use_gpu):
     parser.add_argument('--model-mode',
                         dest='model_mode',
                         type=int,
-                        default=3,
+                        default=2,
                         help='Which model to use.')
     parser.add_argument('--input-data',
                         dest='input_data',
@@ -48,6 +48,9 @@ def run_experiment(parser, use_gpu):
                         type=str,
                         default=None,
                         help='Paths of pre-trained models.')
+    parser.add_argument('--profile-path', dest='profile_path',
+                        type=str, default="",
+                        help='Profiles to use for embedding.')
     args, _unknown = parser.parse_known_args()
 
     result_matrices = np.zeros((5, 5), dtype=np.int64)
@@ -60,14 +63,15 @@ def run_experiment(parser, use_gpu):
         model_mode = TMHMM3Mode.LSTM_CRF_HMM
     elif args.model_mode == 3:
         model_mode = TMHMM3Mode.LSTM_CRF_MARG
-    elif args.model_mode == 4:
-        model_mode = TMHMM3Mode.LSTM_CTC
     else:
         print("ERROR: No model defined")
 
     print("Using model:", model_mode)
 
-    embedding = "BLOSUM62"
+    if args.profile_path != "":
+        embedding = "PROFILE"
+    else:
+        embedding = "BLOSUM62"
     use_marg_prob = False
     all_prediction_data = []
 
@@ -120,7 +124,7 @@ def run_experiment(parser, use_gpu):
         # Use smaller minibatch size for topology
         train_loader_topology = \
             tm_contruct_dataloader_from_disk(train_preprocessed_set_topology,
-                                             int(args.minibatch_size / 2))
+                                             int(args.minibatch_size / 8))
         validation_loader_topology = \
             tm_contruct_dataloader_from_disk(validation_preprocessed_set_topology,
                                              args
@@ -131,13 +135,13 @@ def run_experiment(parser, use_gpu):
         if args.pre_trained_model_paths is None:
             for (experiment_id, train_data, validation_data) in [
                     ("TRAIN_TYPE_CV" + str(cv_partition) + "-" + str(model_mode)
-                     + "-HS" + str(args.hidden_size) + "-F" + str(args.input_data.split(".")[-2]),
-                     train_loader,
+                     + "-HS" + str(args.hidden_size) + "-F" + str(args.input_data.split(".")[-2])
+                     + "-P" + str(args.profile_path.split("_")[-1]), train_loader,
                      validation_loader),
-                    ("TRAIN_TOPOLOGY_CV" + str(cv_partition) + "-" + str(model_mode) + "-HS"
-                     + str(args.hidden_size) + "-F" + str(args.input_data.split(".")[-2]),
+                    ("TRAIN_TOPOLOGY_CV" + str(cv_partition) + "-" + str(model_mode)
+                     + "-HS" + str(args.hidden_size) + "-F" + str(args.input_data.split(".")[-2])
+                     + "-P" + str(args.profile_path.split("_")[-1]),
                      train_loader_topology, validation_loader_topology)]:
-
                 type_predictor = None
                 if type_predictor_model_path is not None:
                     type_predictor = load_model_from_disk(type_predictor_model_path,
@@ -149,7 +153,8 @@ def run_experiment(parser, use_gpu):
                     use_gpu,
                     model_mode,
                     use_marg_prob,
-                    type_predictor)
+                    type_predictor,
+                    args.profile_path)
 
                 model_path = train_model(data_set_identifier=experiment_id,
                                          model=model,

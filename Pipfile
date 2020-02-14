@@ -6,16 +6,15 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-torch = "*"
-torchvision = "*"
-flask = "*"
-flask-cors = "*"
-h5py = "*"
-peptidebuilder = "*"
-biopython = "<=1.68"
-requests = "*"
-tensorflow = "*"
-pylint = "~=2.4.4"
+torch = "==1.4.0"
+torchvision = "==0.5.0"
+flask = "==1.1.1"
+flask-cors = "==3.0.8"
+h5py = "==2.10.0"
+peptidebuilder = "==1.0.4"
+biopython = "==1.68"
+requests = "==2.22.0"
+pylint = "==2.4.4"
 
 [requires]
 python_version = "3.7"

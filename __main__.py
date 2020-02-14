@@ -16,7 +16,6 @@ print("------------------------")
 print("--- OpenProtein v0.1 ---")
 print("------------------------")
 
-
 def main():
     parser = argparse.ArgumentParser(description="OpenProtein version 0.1")
     parser.add_argument('--silent', dest='silent', action='store_true',
@@ -33,7 +32,7 @@ def main():
     parser.add_argument('--min-updates', dest='minimum_updates', type=int,
                         default=100, help='Minimum number of minibatch iterations.')
     parser.add_argument('--minibatch-size', dest='minibatch_size', type=int,
-                        default=10, help='Size of each minibatch.')
+                        default=8, help='Size of each minibatch.')
     parser.add_argument('--experiment-id', dest='experiment_id', type=str,
                         default="example", help='Which experiment to run.')
     args, _ = parser.parse_known_args()

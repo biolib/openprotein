@@ -180,7 +180,7 @@ def tm_contruct_dataloader_from_disk(tm_dataset, minibatch_size, balance_classes
         batch_sampler = RandomBatchSequentialSampler(tm_dataset, minibatch_size)
     return torch.utils.data.DataLoader(tm_dataset,
                                        batch_sampler=batch_sampler,
-                                       collate_fn=TMDataset.merge_samples_to_minibatch)
+                                       collate_fn=merge_samples_to_minibatch)
 
 
 class RandomBatchClassBalancedSequentialSampler(torch.utils.data.sampler.Sampler):
@@ -216,7 +216,7 @@ class RandomBatchClassBalancedSequentialSampler(torch.utils.data.sampler.Sampler
             batch = []
             for _class_id, data_rows in data_class_map.items():
                 int_offset = int(batch_relative_offset * len(data_rows))
-                batch.extend(self.sample_at_index(data_rows, int_offset, num_each_class))
+                batch.extend(sample_at_index(data_rows, int_offset, num_each_class))
             batch_relative_offset += 1.0 / float(batch_num)
             batches.append(batch)
 
