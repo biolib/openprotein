@@ -21,6 +21,7 @@ Completed pre-processing.
 2018-09-27 19:27:34: Train loss: -781787.696391812
 2018-09-27 19:27:35: Loss time: 1.8300042152404785 Grad time: 0.5147676467895508
 ...
+...
 ```
 
 ## Developing a Predictive Model
