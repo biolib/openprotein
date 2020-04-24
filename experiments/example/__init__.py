@@ -6,7 +6,7 @@ For license information, please see the LICENSE file in the root directory.
 
 from preprocessing import process_raw_data
 
-from models import *
+from experiments.example.models import *
 from training import train_model
 from util import contruct_dataloader_from_disk
 
@@ -15,14 +15,18 @@ def run_experiment(parser, use_gpu):
     # parse experiment specific command line arguments
     parser.add_argument('--learning-rate', dest='learning_rate', type=float,
                         default=0.01, help='Learning rate to use during training.')
+    parser.add_argument('--min-updates', dest='minimum_updates', type=int,
+                        default=1000, help='Minimum number of minibatch iterations.')
+    parser.add_argument('--minibatch-size', dest='minibatch_size', type=int,
+                        default=1, help='Size of each minibatch.')
     args, _unknown = parser.parse_known_args()
 
     # pre-process data
     process_raw_data(use_gpu, force_pre_processing_overwrite=False)
 
     # run experiment
-    training_file = "data/preprocessed/sample.txt.hdf5"
-    validation_file = "data/preprocessed/sample.txt.hdf5"
+    training_file = "data/preprocessed/single_protein.txt.hdf5"
+    validation_file = "data/preprocessed/single_protein.txt.hdf5"
 
     model = ExampleModel(21, args.minibatch_size, use_gpu=use_gpu)  # embed size = 21
 
@@ -40,4 +44,5 @@ def run_experiment(parser, use_gpu):
                                    use_gpu=use_gpu,
                                    minimum_updates=args.minimum_updates)
 
+    print("Completed training, trained model stored at:")
     print(train_model_path)

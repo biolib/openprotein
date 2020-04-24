@@ -184,7 +184,7 @@ def run_experiment(parser, use_gpu):
         model = load_model_from_disk(model_path, force_cpu=False)
         _loss, json_data, prediction_data = model.evaluate_model(test_loader)
 
-        all_prediction_data.append(model.post_process_prediction_data(prediction_data))
+        all_prediction_data.append(post_process_prediction_data(prediction_data))
         result_matrix = np.array(json_data['confusion_matrix'])
         result_matrices += result_matrix
         write_out(result_matrix)

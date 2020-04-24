@@ -4,7 +4,6 @@ This file is part of the OpenProtein project.
 For license information, please see the LICENSE file in the root directory.
 """
 
-import json
 import time
 import numpy as np
 import requests
@@ -32,7 +31,7 @@ def train_model(data_set_identifier, model, train_loader, validation_loader,
     best_model_loss = 1e20
     best_model_minibatch_time = None
     best_model_path = None
-    best_json_data = None
+    _best_json_data = None
     stopping_condition_met = False
     minibatches_proccesed = 0
 
@@ -68,7 +67,7 @@ def train_model(data_set_identifier, model, train_loader, validation_loader,
                     best_model_loss = validation_loss
                     best_model_minibatch_time = minibatches_proccesed
                     best_model_path = write_model_to_disk(model)
-                    best_json_data = json_data
+                    _best_json_data = json_data
 
                 write_out("Validation loss:", validation_loss, "Train loss:", train_loss)
                 write_out("Best model so far (validation loss): ", best_model_loss, "at time",
@@ -84,17 +83,17 @@ def train_model(data_set_identifier, model, train_loader, validation_loader,
                 json_data["train_loss_values"] = train_loss_values
                 json_data["validation_loss_values"] = validation_loss_values
 
-                write_out(json_data)
-
                 if not hide_ui:
+                    write_out("Updating monitoring service:", str(json_data)
+                              if len(str(json_data)) < 50 else str(json_data)[:50]+"...")
                     res = requests.post('http://localhost:5000/graph', json=json_data)
                     if res.ok:
-                        print(res.json())
+                        write_out("Received response from monitoring service:", res.json())
 
                 if minibatches_proccesed > minimum_updates and minibatches_proccesed \
                         >= best_model_minibatch_time + minimum_updates:
                     stopping_condition_met = True
                     break
     write_result_summary(best_model_loss)
-    write_result_summary(json.dumps(best_json_data))
+    # write_result_summary(json.dumps(_best_json_data))
     return best_model_path

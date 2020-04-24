@@ -4,21 +4,25 @@ This file is part of the OpenProtein project.
 For license information, please see the LICENSE file in the root directory.
 """
 
+import collections
 import math
 import os
 from datetime import datetime
 import torch
 import torch.utils.data
+import torch.nn.functional as F
 import h5py
 import PeptideBuilder
 import Bio.PDB
+from Bio.Data.IUPACData import protein_letters_1to3
 import numpy as np
-import pnerf.pnerf as pnerf
+from torch.nn.utils.rnn import pad_sequence
 
 AA_ID_DICT = {'A': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7, 'I': 8, 'K': 9,
               'L': 10, 'M': 11, 'N': 12, 'P': 13, 'Q': 14, 'R': 15, 'S': 16, 'T': 17,
               'V': 18, 'W': 19, 'Y': 20}
 
+PI_TENSOR = torch.tensor([3.141592])
 
 def contruct_dataloader_from_disk(filename, minibatch_size):
     return torch.utils.data.DataLoader(H5PytorchDataset(filename),
@@ -37,7 +41,7 @@ class H5PytorchDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         mask = torch.Tensor(self.h5pyfile['mask'][index, :]).type(dtype=torch.bool)
         prim = torch.masked_select(
-            torch.Tensor(self.h5pyfile['primary'][index, :]).type(dtype=torch.long),
+            torch.Tensor(self.h5pyfile['primary'][index, :]).type(dtype=torch.int),
             mask)
         tertiary = torch.Tensor(self.h5pyfile['tertiary'][index][:int(mask.sum())])# max length x 9
         return prim, tertiary, mask
@@ -136,55 +140,123 @@ def write_result_summary(accuracy):
 
 def calculate_dihedral_angles_over_minibatch(atomic_coords_padded, batch_sizes, use_gpu):
     angles = []
+    batch_sizes = torch.LongTensor(batch_sizes)
     atomic_coords = atomic_coords_padded.transpose(0, 1)
-    for idx, _ in enumerate(batch_sizes):
-        angles.append(calculate_dihedral_angles(atomic_coords[idx][:batch_sizes[idx]], use_gpu))
-    return torch.nn.utils.rnn.pad_packed_sequence(
-        torch.nn.utils.rnn.pack_sequence(angles))
 
+    for idx, coordinate in enumerate(atomic_coords.split(1, dim=0)):
+        angles_from_coords = torch.index_select(
+            coordinate.squeeze(0),
+            0,
+            torch.arange(int(batch_sizes[idx].item()))
+        )
+        angles.append(calculate_dihedral_angles(angles_from_coords, use_gpu))
+
+    return torch.nn.utils.rnn.pad_sequence(angles), batch_sizes
 
 def protein_id_to_str(protein_id_list):
     _aa_dict_inverse = {v: k for k, v in AA_ID_DICT.items()}
     aa_list = []
     for protein_id in protein_id_list:
-        aa_symbol = _aa_dict_inverse[int(protein_id)]
+        aa_symbol = _aa_dict_inverse[protein_id.item()]
         aa_list.append(aa_symbol)
     return aa_list
 
 
 def calculate_dihedral_angles(atomic_coords, use_gpu):
-    assert int(atomic_coords.shape[1]) == 9
+    #assert atomic_coords.shape[1] == 9
     atomic_coords = atomic_coords.contiguous().view(-1, 3)
 
-    zero_tensor = torch.tensor(0.0)
+    zero_tensor = torch.zeros(1)
     if use_gpu:
         zero_tensor = zero_tensor.cuda()
 
-    dihedral_list = [zero_tensor, zero_tensor]
-    dihedral_list.extend(compute_dihedral_list(atomic_coords))
-    dihedral_list.append(zero_tensor)
-    angles = torch.tensor(dihedral_list).view(-1, 3)
+
+
+    angles = torch.cat((zero_tensor,
+                        zero_tensor,
+                        compute_dihedral_list(atomic_coords),
+                        zero_tensor)).view(-1, 3)
     return angles
+
+def compute_cross(tensor_a, tensor_b, dim):
+
+    result = []
+
+    x = torch.zeros(1).long()
+    y = torch.ones(1).long()
+    z = torch.ones(1).long() * 2
+
+    ax = torch.index_select(tensor_a, dim, x).squeeze(dim)
+    ay = torch.index_select(tensor_a, dim, y).squeeze(dim)
+    az = torch.index_select(tensor_a, dim, z).squeeze(dim)
+
+    bx = torch.index_select(tensor_b, dim, x).squeeze(dim)
+    by = torch.index_select(tensor_b, dim, y).squeeze(dim)
+    bz = torch.index_select(tensor_b, dim, z).squeeze(dim)
+
+    result.append(ay * bz - az * by)
+    result.append(az * bx - ax * bz)
+    result.append(ax * by - ay * bx)
+
+    result = torch.stack(result, dim=dim)
+
+    return result
+
+
+def compute_atan2(y_coord, x_coord):
+    # TODO: figure out of eps is needed here
+    eps = 10 ** (-4)
+    ans = torch.atan(y_coord / (x_coord + eps)) # x > 0
+    ans = torch.where((y_coord >= 0) & (x_coord < 0), ans + PI_TENSOR, ans)
+    ans = torch.where((y_coord < 0) & (x_coord < 0), ans - PI_TENSOR, ans)
+    ans = torch.where((y_coord > 0) & (x_coord == 0), PI_TENSOR / 2, ans)
+    ans = torch.where((y_coord < 0) & (x_coord == 0), -PI_TENSOR / 2, ans)
+    return ans
 
 
 def compute_dihedral_list(atomic_coords):
     # atomic_coords is -1 x 3
     ba = atomic_coords[1:] - atomic_coords[:-1]
-    ba /= ba.norm(dim=1).unsqueeze(1)
-    ba_neg = -1 * ba
+    ba_normalized = ba / ba.norm(dim=1).unsqueeze(1)
+    ba_neg = -1 * ba_normalized
 
-    n1_vec = torch.cross(ba[:-2], ba_neg[1:-1], dim=1)
-    n2_vec = torch.cross(ba_neg[1:-1], ba[2:], dim=1)
-    n1_vec /= n1_vec.norm(dim=1).unsqueeze(1)
-    n2_vec /= n2_vec.norm(dim=1).unsqueeze(1)
+    n1_vec = compute_cross(ba_normalized[:-2], ba_neg[1:-1], dim=1)
+    n2_vec = compute_cross(ba_neg[1:-1], ba_normalized[2:], dim=1)
 
-    m1_vec = torch.cross(n1_vec, ba_neg[1:-1], dim=1)
+    n1_vec_normalized = n1_vec / n1_vec.norm(dim=1).unsqueeze(1)
+    n2_vec_normalized = n2_vec / n2_vec.norm(dim=1).unsqueeze(1)
 
-    x_value = torch.sum(n1_vec * n2_vec, dim=1)
-    y_value = torch.sum(m1_vec * n2_vec, dim=1)
+    m1_vec = compute_cross(n1_vec_normalized, ba_neg[1:-1], dim=1)
 
-    return torch.atan2(y_value, x_value)
+    x_value = torch.sum(n1_vec_normalized * n2_vec_normalized, dim=1)
+    y_value = torch.sum(m1_vec * n2_vec_normalized, dim=1)
+    return compute_atan2(y_value, x_value)
 
+
+def write_pdb(file_name, aa_sequence, residue_coords):
+    residue_names = list([protein_letters_1to3[l].upper() for l in aa_sequence])
+    num_atoms = len(residue_coords)
+    backbone_names = num_atoms * ["N", "CA", "C"]
+
+    assert num_atoms == len(aa_sequence) * 3
+    file = open(file_name, 'w')
+
+    for i in range(num_atoms):
+        atom_coordinates = list([str(l) for l in np.round(residue_coords[i], 3)])
+        residue_position = int(i / 3)
+        atom_id = str(i + 1)
+        file.write(f"""\
+ATOM  \
+{atom_id.rjust(5)} \
+{backbone_names[i].rjust(4)} \
+{residue_names[residue_position - 1].rjust(3)} \
+A\
+{str(residue_position).rjust(4)}    \
+{atom_coordinates[0].rjust(8)}\
+{atom_coordinates[1].rjust(8)}\
+{atom_coordinates[2].rjust(8)}\
+\n""")
+    file.close()
 
 def get_structure_from_angles(aa_list_encoded, angles):
     aa_list = protein_id_to_str(aa_list_encoded)
@@ -289,11 +361,14 @@ def structure_to_backbone_atoms(structure):
         predicted_coords.append(torch.Tensor(res["C"].get_coord()))
     return torch.stack(predicted_coords).view(-1, 9)
 
-
-def get_backbone_positions_from_angular_prediction(angular_emissions, batch_sizes, use_gpu):
+NUM_FRAGMENTS = torch.tensor(6)
+def get_backbone_positions_from_angles(angular_emissions, batch_sizes, use_gpu):
     # angular_emissions -1 x minibatch size x 3 (omega, phi, psi)
-    points = pnerf.dihedral_to_point(angular_emissions, use_gpu)
-    coordinates = pnerf.point_to_coordinate(points, use_gpu) / 100  # devide by 100 to angstrom unit
+    points = dihedral_to_point(angular_emissions, use_gpu)
+    coordinates = point_to_coordinate(
+        points,
+        use_gpu,
+        num_fragments=NUM_FRAGMENTS) / 100  # divide by 100 to angstrom unit
     return coordinates.transpose(0, 1).contiguous()\
                .view(len(batch_sizes), -1, 9).transpose(0, 1), batch_sizes
 
@@ -317,16 +392,19 @@ def encode_primary_string(primary):
     return list([AA_ID_DICT[aa] for aa in primary])
 
 
-def initial_pos_from_aa_string(batch_aa_string):
-    structures = []
+def initial_pos_from_aa_string(batch_aa_string, use_gpu):
+    arr_of_angles = []
+    batch_sizes = []
     for aa_string in batch_aa_string:
-        structure = get_structure_from_angles(aa_string,
-                                              np.repeat([-120], len(aa_string) - 1),
-                                              np.repeat([140], len(aa_string) - 1),
-                                              np.repeat([-370], len(aa_string) - 1))
-        structures.append(structure)
-    return structures
+        length_of_protein = aa_string.size(0)
+        angles = torch.stack([-120*torch.ones(length_of_protein),
+                              140*torch.ones(length_of_protein),
+                              -370*torch.ones(length_of_protein)]).transpose(0, 1)
+        arr_of_angles.append(angles)
+        batch_sizes.append(length_of_protein)
 
+    padded = pad_sequence(arr_of_angles).transpose(0, 1)
+    return get_backbone_positions_from_angles(padded, batch_sizes, use_gpu)
 
 def pass_messages(aa_features, message_transformation, use_gpu):
     # aa_features (#aa, #features) - each row represents the amino acid type
@@ -334,8 +412,14 @@ def pass_messages(aa_features, message_transformation, use_gpu):
     # message_transformation: (-1 * 2 * feature_size) -> (-1 * output message size)
     feature_size = aa_features.size(1)
     aa_count = aa_features.size(0)
-    eye = torch.eye(aa_count, dtype=torch.uint8).view(-1).expand(2, feature_size, -1)\
+
+    arange2d = torch.arange(aa_count).repeat(aa_count).view((aa_count, aa_count))
+
+    diagonal_matrix = (arange2d == arange2d.transpose(0, 1)).int()
+
+    eye = diagonal_matrix.view(-1).expand(2, feature_size, -1)\
         .transpose(1, 2).transpose(0, 1)
+
     eye_inverted = torch.ones(eye.size(), dtype=torch.uint8) - eye
     if use_gpu:
         eye_inverted = eye_inverted.cuda()
@@ -343,7 +427,12 @@ def pass_messages(aa_features, message_transformation, use_gpu):
     # (aa_count^2 - aa_count) x 2 x aa_features     (all pairs except for reflexive connections)
     aa_messages = torch.stack((features_repeated.transpose(0, 1), features_repeated))\
         .transpose(0, 1).transpose(1, 2).view(-1, 2, feature_size)
-    aa_msg_pairs = torch.masked_select(aa_messages, eye_inverted).view(-1, 2, feature_size)
+
+    eye_inverted_location = eye_inverted.view(-1).nonzero().squeeze(1)
+
+    aa_msg_pairs = aa_messages\
+        .reshape(-1).gather(0, eye_inverted_location).view(-1, 2, feature_size)
+
     transformed = message_transformation(aa_msg_pairs).view(aa_count, aa_count - 1, -1)
     transformed_sum = transformed.sum(dim=1)  # aa_count x output message size
     return transformed_sum
@@ -362,3 +451,163 @@ def load_model_from_disk(path, force_cpu=True):
         model = torch.load(path)
         model.flatten_parameters()
     return model
+
+# Constants
+NUM_DIMENSIONS = 3
+NUM_DIHEDRALS = 3
+BOND_LENGTHS = torch.tensor([145.801, 152.326, 132.868], dtype=torch.float32)
+BOND_ANGLES = torch.tensor([2.124, 1.941, 2.028], dtype=torch.float32)
+
+
+def dihedral_to_point(dihedral, use_gpu, bond_lengths=BOND_LENGTHS,
+                      bond_angles=BOND_ANGLES):
+    """
+    Takes triplets of dihedral angles (phi, psi, omega) and returns 3D points
+    ready for use in reconstruction of coordinates. Bond lengths and angles
+    are based on idealized averages.
+    :param dihedral: [NUM_STEPS, BATCH_SIZE, NUM_DIHEDRALS]
+    :return: Tensor containing points of the protein's backbone atoms.
+    Shape [NUM_STEPS x NUM_DIHEDRALS, BATCH_SIZE, NUM_DIMENSIONS]
+    """
+    num_steps = dihedral.shape[0]
+    batch_size = dihedral.shape[1]
+
+    r_cos_theta = bond_lengths * torch.cos(PI_TENSOR - bond_angles)
+    r_sin_theta = bond_lengths * torch.sin(PI_TENSOR - bond_angles)
+
+    if use_gpu:
+        r_cos_theta = r_cos_theta.cuda()
+        r_sin_theta = r_sin_theta.cuda()
+
+    point_x = r_cos_theta.view(1, 1, -1).repeat(num_steps, batch_size, 1)
+    point_y = torch.cos(dihedral) * r_sin_theta
+    point_z = torch.sin(dihedral) * r_sin_theta
+
+    point = torch.stack([point_x, point_y, point_z])
+    point_perm = point.permute(1, 3, 2, 0)
+    point_final = point_perm.contiguous().view(num_steps * NUM_DIHEDRALS,
+                                               batch_size,
+                                               NUM_DIMENSIONS)
+    return point_final
+
+PNERF_INIT_MATRIX = [torch.tensor([-torch.sqrt(torch.tensor([1.0 / 2.0])),
+                                   torch.sqrt(torch.tensor([3.0 / 2.0])), 0]),
+                     torch.tensor([-torch.sqrt(torch.tensor([2.0])), 0, 0]),
+                     torch.tensor([0, 0, 0])]
+
+def point_to_coordinate(points, use_gpu, num_fragments):
+    """
+    Takes points from dihedral_to_point and sequentially converts them into
+    coordinates of a 3D structure.
+
+    Reconstruction is done in parallel by independently reconstructing
+    num_fragments and the reconstituting the chain at the end in reverse order.
+    The core reconstruction algorithm is NeRF, based on
+    DOI: 10.1002/jcc.20237 by Parsons et al. 2005.
+    The parallelized version is described in
+    https://www.biorxiv.org/content/early/2018/08/06/385450.
+    :param points: Tensor containing points as returned by `dihedral_to_point`.
+    Shape [NUM_STEPS x NUM_DIHEDRALS, BATCH_SIZE, NUM_DIMENSIONS]
+    :param num_fragments: Number of fragments in which the sequence is split
+    to perform parallel computation.
+    :return: Tensor containing correctly transformed atom coordinates.
+    Shape [NUM_STEPS x NUM_DIHEDRALS, BATCH_SIZE, NUM_DIMENSIONS]
+    """
+
+    # Compute optimal number of fragments if needed
+    total_num_angles = points.size(0)  # NUM_STEPS x NUM_DIHEDRALS
+    if isinstance(total_num_angles, int):
+        total_num_angles = torch.tensor(total_num_angles)
+
+    # Initial three coordinates (specifically chosen to eliminate need for
+    # extraneous matmul)
+    Triplet = collections.namedtuple('Triplet', 'a, b, c')
+    batch_size = points.shape[1]
+
+    init_coords = []
+    for row in PNERF_INIT_MATRIX:
+        row_tensor = row\
+                .repeat([num_fragments * batch_size, 1])\
+                .view(num_fragments, batch_size, NUM_DIMENSIONS)
+        if use_gpu:
+            row_tensor = row_tensor.cuda()
+        init_coords.append(row_tensor)
+
+    init_coords = Triplet(*init_coords)  # NUM_DIHEDRALS x [NUM_FRAGS, BATCH_SIZE, NUM_DIMENSIONS]
+
+    # Pad points to yield equal-sized fragments
+    # (NUM_FRAGS x FRAG_SIZE) - (NUM_STEPS x NUM_DIHEDRALS)
+    padding = torch.fmod(num_fragments - (total_num_angles % num_fragments), num_fragments)
+
+    # [NUM_FRAGS x FRAG_SIZE, BATCH_SIZE, NUM_DIMENSIONS]
+    padding_tensor = torch.zeros((padding, points.size(1), points.size(2)))
+    points = torch.cat((points, padding_tensor))
+
+    points = points.view(num_fragments, -1, batch_size,
+                         NUM_DIMENSIONS)  # [NUM_FRAGS, FRAG_SIZE, BATCH_SIZE, NUM_DIMENSIONS]
+    points = points.permute(1, 0, 2, 3)  # [FRAG_SIZE, NUM_FRAGS, BATCH_SIZE, NUM_DIMENSIONS]
+
+    # Extension function used for single atom reconstruction and whole fragment
+    # alignment
+    def extend(prev_three_coords, point, multi_m):
+        """
+        Aligns an atom or an entire fragment depending on value of `multi_m`
+        with the preceding three atoms.
+        :param prev_three_coords: Named tuple storing the last three atom
+        coordinates ("a", "b", "c") where "c" is the current end of the
+        structure (i.e. closest to the atom/ fragment that will be added now).
+        Shape NUM_DIHEDRALS x [NUM_FRAGS/0, BATCH_SIZE, NUM_DIMENSIONS].
+        First rank depends on value of `multi_m`.
+        :param point: Point describing the atom that is added to the structure.
+        Shape [NUM_FRAGS/FRAG_SIZE, BATCH_SIZE, NUM_DIMENSIONS]
+        First rank depends on value of `multi_m`.
+        :param multi_m: If True, a single atom is added to the chain for
+        multiple fragments in parallel. If False, an single fragment is added.
+        Note the different parameter dimensions.
+        :return: Coordinates of the atom/ fragment.
+        """
+        bc = F.normalize(prev_three_coords.c - prev_three_coords.b, dim=-1)
+        n = F.normalize(compute_cross(prev_three_coords.b - prev_three_coords.a,
+                                      bc, dim=2 if multi_m else 1), dim=-1)
+        if multi_m:  # multiple fragments, one atom at a time
+            m = torch.stack([bc, compute_cross(n, bc, dim=2), n]).permute(1, 2, 3, 0)
+        else:  # single fragment, reconstructed entirely at once.
+            s = point.shape + (3,)
+            m = torch.stack([bc, compute_cross(n, bc, dim=1), n]).permute(1, 2, 0)
+            m = m.repeat(s[0], 1, 1).view(s)
+        coord = torch.squeeze(torch.matmul(m, point.unsqueeze(3)),
+                              dim=3) + prev_three_coords.c
+        return coord
+
+    # Loop over FRAG_SIZE in NUM_FRAGS parallel fragments, sequentially
+    # generating the coordinates for each fragment across all batches
+    coords_list = []
+    prev_three_coords = init_coords
+
+    for point in points.split(1, dim=0):  # Iterate over FRAG_SIZE
+        coord = extend(prev_three_coords, point.squeeze(0), True)
+        coords_list.append(coord)
+        prev_three_coords = Triplet(prev_three_coords.b,
+                                    prev_three_coords.c,
+                                    coord)
+
+    coords_pretrans = torch.stack(coords_list).permute(1, 0, 2, 3)
+
+    # Loop backwards over NUM_FRAGS to align the individual fragments. For each
+    # next fragment, we transform the fragments we have already iterated over
+    # (coords_trans) to be aligned with the next fragment
+    coords_trans = coords_pretrans[-1]
+    for idx in torch.arange(end=-1, start=coords_pretrans.shape[0] - 2, step=-1).split(1, dim=0):
+        # Transform the fragments that we have already iterated over to be
+        # aligned with the next fragment `coords_trans`
+        transformed_coords = extend(Triplet(*[di.index_select(0, idx).squeeze(0)
+                                              for di in prev_three_coords]),
+                                    coords_trans, False)
+        coords_trans = torch.cat(
+            [coords_pretrans.index_select(0, idx).squeeze(0), transformed_coords], 0)
+
+    coords_to_pad = torch.index_select(coords_trans, 0, torch.arange(total_num_angles - 1))
+
+    coords = F.pad(coords_to_pad, (0, 0, 0, 0, 1, 0))
+
+    return coords

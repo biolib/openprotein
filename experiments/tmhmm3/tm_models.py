@@ -420,25 +420,26 @@ class TMHMM3(openprotein.BaseModel):
                         predicted_topology = predicted_topologies_type_classifier[idx]
                         predicted_labels_for_protein = predicted_labels_type_classifer[idx]
 
-                    prediction_topology_match = is_topologies_equal(prot_topology_list[idx],
-                                                                    predicted_topology, 5)
+                prediction_topology_match = is_topologies_equal(prot_topology_list[idx],
+                                                                predicted_topology, 5)
 
-                    if actual_type == predicted_type:
-                        validation_type_loss_tracker.append(0)
-                        # if we guessed the type right for SP+GLOB or GLOB,
-                        # count the topology as correct
-                        if actual_type == 2 or actual_type == 3 or prediction_topology_match:
-                            validation_topology_loss_tracker.append(0)
-                            confusion_matrix[actual_type][4] += 1
+                if actual_type == predicted_type:
+                    validation_type_loss_tracker.append(0)
+                    # if we guessed the type right for SP+GLOB or GLOB,
+                    # count the topology as correct
+                    if actual_type == 2 or actual_type == 3 or prediction_topology_match:
+                        validation_topology_loss_tracker.append(0)
+                        confusion_matrix[actual_type][4] += 1
                     else:
                         validation_topology_loss_tracker.append(1)
                         confusion_matrix[actual_type][predicted_type] += 1
-                        # if the type was correctly guess 2 or 3 by the type classifier,
-                        # use its topology prediction
-                        if (actual_type in (2, 3)) and self.type_classifier is not None:
-                            protein_label_prediction.append(predicted_labels_type_classifer[idx])
-                        else:
-                            protein_label_prediction.append(predicted_labels_for_protein)
+
+                    # if the type was correctly guessed to be 2 or 3 by the type classifier,
+                    # use its topology prediction
+                    if (actual_type in (2, 3)) and self.type_classifier is not None:
+                        protein_label_prediction.append(predicted_labels_type_classifer[idx])
+                    else:
+                        protein_label_prediction.append(predicted_labels_for_protein)
                 else:
                     confusion_matrix[actual_type][predicted_type] += 1
                     validation_type_loss_tracker.append(1)
