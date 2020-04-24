@@ -3,32 +3,37 @@ This file is part of the OpenProtein project.
 
 For license information, please see the LICENSE file in the root directory.
 """
+import math
 
+import numpy as np
+import torch
+import torch.nn as nn
+import openprotein
 from preprocessing import process_raw_data
-
-from experiments.example.models import *
 from training import train_model
-from util import contruct_dataloader_from_disk
 
+from util import get_backbone_positions_from_angles, contruct_dataloader_from_disk
+
+ANGLE_ARR = torch.tensor([[-120, 140, -370], [0, 120, -150], [25, -120, 150]]).float()
 
 def run_experiment(parser, use_gpu):
     # parse experiment specific command line arguments
     parser.add_argument('--learning-rate', dest='learning_rate', type=float,
                         default=0.01, help='Learning rate to use during training.')
-    parser.add_argument('--min-updates', dest='minimum_updates', type=int,
-                        default=1000, help='Minimum number of minibatch iterations.')
-    parser.add_argument('--minibatch-size', dest='minibatch_size', type=int,
-                        default=1, help='Size of each minibatch.')
+
+    parser.add_argument('--input-file', dest='input_file', type=str,
+                        default='data/preprocessed/protein_net_testfile.txt.hdf5')
+
     args, _unknown = parser.parse_known_args()
 
     # pre-process data
     process_raw_data(use_gpu, force_pre_processing_overwrite=False)
 
     # run experiment
-    training_file = "data/preprocessed/single_protein.txt.hdf5"
-    validation_file = "data/preprocessed/single_protein.txt.hdf5"
+    training_file = args.input_file
+    validation_file = args.input_file
 
-    model = ExampleModel(21, args.minibatch_size, use_gpu=use_gpu)  # embed size = 21
+    model = MyModel(21, use_gpu=use_gpu)  # embed size = 21
 
     train_loader = contruct_dataloader_from_disk(training_file, args.minibatch_size)
     validation_loader = contruct_dataloader_from_disk(validation_file, args.minibatch_size)
@@ -46,3 +51,22 @@ def run_experiment(parser, use_gpu):
 
     print("Completed training, trained model stored at:")
     print(train_model_path)
+
+class MyModel(openprotein.BaseModel):
+    def __init__(self, embedding_size, use_gpu):
+        super(MyModel, self).__init__(use_gpu, embedding_size)
+        self.use_gpu = use_gpu
+        self.number_angles = 3
+        self.input_to_angles = nn.Linear(embedding_size, self.number_angles)
+
+    def _get_network_emissions(self, original_aa_string):
+        batch_sizes = list([a.size() for a in original_aa_string])
+
+        embedded_input = self.embed(original_aa_string)
+        emissions_padded = self.input_to_angles(embedded_input)
+
+        probabilities = torch.softmax(emissions_padded.transpose(0, 1), 2)
+
+        output_angles = torch.matmul(probabilities, ANGLE_ARR).transpose(0, 1)
+
+        return output_angles, [], batch_sizes

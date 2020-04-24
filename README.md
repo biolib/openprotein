@@ -5,7 +5,10 @@ A PyTorch framework for tertiary protein structure prediction.
 ![Alt text](examplemodelrun.png?raw=true "OpenProtein")
 
 ## Getting started
-To run this project, simply git clone the repository, install dependencies using `pipenv install` and then type `pipenv run python __main__.py` in the terminal to run the sample experiment:
+To run this project, you will need `pipenv`: https://pipenv-fork.readthedocs.io/en/latest/install.html
+
+After you have installed `pipenv`, simply git clone this repository, install dependencies using `pipenv install` and then type `pipenv run python __main__.py` in the terminal to run the sample experiment:
+
 ```
 $ pipenv run python __main__.py
 ------------------------
@@ -23,8 +26,12 @@ Completed pre-processing.
 ...
 ```
 
+You can view a live dashboard of the model's performance by navigating to https://biolib.com/openprotein. You can customize this dashboard by forking https://github.com/biolib/openprotein-dashboard.
+
 ## Developing a Predictive Model
 See `models.py` for examples of how to create your own model. 
+
+To run pylint on every commit, run `git config core.hooksPath git-hooks`.
 
 ## Using a Predictive Model
 See `prediction.py` for examples of how to use pre-trained models. 

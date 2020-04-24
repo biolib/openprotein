@@ -6,12 +6,11 @@ For license information, please see the LICENSE file in the root directory.
 import math
 import time
 import torch
-import torch.nn.utils.rnn as rnn_utils
 import torch.nn as nn
 from util import calculate_dihedral_angles_over_minibatch, calc_angular_difference, \
-    write_out, calc_rmsd, calc_drmsd, calculate_dihedral_angles, \
-    get_structure_from_angles, write_to_pdb
-
+    write_out, calculate_dihedral_angles, \
+    get_structure_from_angles, write_to_pdb, calc_rmsd,\
+    calc_drmsd, get_backbone_positions_from_angles
 
 
 class BaseModel(nn.Module):
@@ -28,36 +27,44 @@ class BaseModel(nn.Module):
         return self.embedding_size
 
     def embed(self, original_aa_string):
-        data, batch_sizes = torch.nn.utils.rnn.pad_packed_sequence(
-            torch.nn.utils.rnn.pack_sequence(original_aa_string))
+        max_len = max([s.size(0) for s in original_aa_string])
+        seqs = []
+        for tensor in original_aa_string:
+            padding_to_add = torch.zeros(max_len-tensor.size(0)).int()
+            seqs.append(torch.cat((tensor, padding_to_add)))
+
+        data = torch.stack(seqs).transpose(0, 1)
 
         # one-hot encoding
         start_compute_embed = time.time()
-        prot_aa_list = data.unsqueeze(1)
-        embed_tensor = torch.zeros(prot_aa_list.size(0), 21, prot_aa_list.size(2))  # 21 classes
+        arange_tensor = torch.arange(21).int().repeat(
+            len(original_aa_string), 1
+        ).unsqueeze(0).repeat(max_len, 1, 1)
+        data_tensor = data.unsqueeze(2).repeat(1, 1, 21)
+        embed_tensor = (arange_tensor == data_tensor).float()
+
         if self.use_gpu:
-            prot_aa_list = prot_aa_list.cuda()
             embed_tensor = embed_tensor.cuda()
-        input_sequences = embed_tensor.scatter_(1, prot_aa_list.data, 1).transpose(1, 2)
+
         end = time.time()
         write_out("Embed time:", end - start_compute_embed)
-        packed_input_sequences = rnn_utils.pack_padded_sequence(input_sequences, batch_sizes)
-        return packed_input_sequences
+
+        return embed_tensor
 
     def compute_loss(self, minibatch):
         (original_aa_string, actual_coords_list, _) = minibatch
 
         emissions, _backbone_atoms_padded, _batch_sizes = \
             self._get_network_emissions(original_aa_string)
-        actual_coords_list_padded, batch_sizes_coords = torch.nn.utils.rnn\
-            .pad_packed_sequence(
-                torch.nn.utils.rnn.pack_sequence(actual_coords_list))
+        actual_coords_list_padded = torch.nn.utils.rnn.pad_sequence(actual_coords_list)
         if self.use_gpu:
             actual_coords_list_padded = actual_coords_list_padded.cuda()
         start = time.time()
+        if isinstance(_batch_sizes[0], int):
+            _batch_sizes = torch.tensor(_batch_sizes)
         emissions_actual, _ = \
             calculate_dihedral_angles_over_minibatch(actual_coords_list_padded,
-                                                     batch_sizes_coords,
+                                                     _batch_sizes,
                                                      self.use_gpu)
         # drmsd_avg = calc_avg_drmsd_over_minibatch(backbone_atoms_padded,
         #                                           actual_coords_list_padded,
@@ -81,10 +88,29 @@ class BaseModel(nn.Module):
         for _, data in enumerate(data_loader, 0):
             primary_sequence, tertiary_positions, _mask = data
             start = time.time()
-            predicted_angles, backbone_atoms, _batch_sizes = self(primary_sequence)
+            predicted_angles, backbone_atoms, batch_sizes = self(primary_sequence)
             write_out("Apply model to validation minibatch:", time.time() - start)
-            cpu_predicted_angles = predicted_angles.transpose(0, 1).cpu().detach()
-            cpu_predicted_backbone_atoms = backbone_atoms.transpose(0, 1).cpu().detach()
+
+            if predicted_angles == []:
+                # model didn't provide angles, so we'll compute them here
+                output_angles, _ = calculate_dihedral_angles_over_minibatch(backbone_atoms,
+                                                                            batch_sizes,
+                                                                            self.use_gpu)
+            else:
+                output_angles = predicted_angles
+
+            cpu_predicted_angles = output_angles.transpose(0, 1).cpu().detach()
+            if backbone_atoms == []:
+                # model didn't provide backbone atoms, we need to compute that
+                output_positions, _ = \
+                    get_backbone_positions_from_angles(predicted_angles,
+                                                       batch_sizes,
+                                                       self.use_gpu)
+            else:
+                output_positions = backbone_atoms
+
+            cpu_predicted_backbone_atoms = output_positions.transpose(0, 1).cpu().detach()
+
             minibatch_data = list(zip(primary_sequence,
                                       tertiary_positions,
                                       cpu_predicted_angles,
@@ -94,6 +120,7 @@ class BaseModel(nn.Module):
             for primary_sequence, tertiary_positions, _predicted_pos, predicted_backbone_atoms\
                     in minibatch_data:
                 actual_coords = tertiary_positions.transpose(0, 1).contiguous().view(-1, 3)
+
                 predicted_coords = predicted_backbone_atoms[:len(primary_sequence)]\
                     .transpose(0, 1).contiguous().view(-1, 3).detach()
                 rmsd = calc_rmsd(predicted_coords, actual_coords)
@@ -102,6 +129,7 @@ class BaseModel(nn.Module):
                 dRMSD_list.append(drmsd)
                 error = rmsd
                 loss += error
+
                 end = time.time()
             write_out("Calculate validation loss for minibatch took:", end - start)
         loss /= data_loader.dataset.__len__()

@@ -4,31 +4,32 @@ This file is part of the OpenProtein project.
 For license information, please see the LICENSE file in the root directory.
 """
 
+from experiments.rrn.models import RrnModel
+from experiments.example.models import *
+
 from preprocessing import process_raw_data
 
-from experiments.example.models import *
 from training import train_model
 from util import contruct_dataloader_from_disk
-
 
 def run_experiment(parser, use_gpu):
     # parse experiment specific command line arguments
     parser.add_argument('--learning-rate', dest='learning_rate', type=float,
                         default=0.01, help='Learning rate to use during training.')
-    parser.add_argument('--min-updates', dest='minimum_updates', type=int,
-                        default=1000, help='Minimum number of minibatch iterations.')
-    parser.add_argument('--minibatch-size', dest='minibatch_size', type=int,
-                        default=1, help='Size of each minibatch.')
+
+    parser.add_argument('--input-file', dest='input_file', type=str,
+                        default='data/preprocessed/protein_net_testfile.txt.hdf5')
+
     args, _unknown = parser.parse_known_args()
 
     # pre-process data
     process_raw_data(use_gpu, force_pre_processing_overwrite=False)
 
     # run experiment
-    training_file = "data/preprocessed/single_protein.txt.hdf5"
-    validation_file = "data/preprocessed/single_protein.txt.hdf5"
+    training_file = args.input_file
+    validation_file = args.input_file
 
-    model = ExampleModel(21, args.minibatch_size, use_gpu=use_gpu)  # embed size = 21
+    model = RrnModel(21, use_gpu=use_gpu)  # embed size = 21
 
     train_loader = contruct_dataloader_from_disk(training_file, args.minibatch_size)
     validation_loader = contruct_dataloader_from_disk(validation_file, args.minibatch_size)

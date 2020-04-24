@@ -6,8 +6,8 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-torch = "==1.4.0"
-torchvision = "==0.5.0"
+torch = "==1.5.0"
+torchvision = "==0.6.0"
 flask = "==1.1.1"
 flask-cors = "==3.0.8"
 h5py = "==2.10.0"
@@ -15,6 +15,8 @@ peptidebuilder = "==1.0.4"
 biopython = "==1.68"
 requests = "==2.22.0"
 pylint = "==2.4.4"
+pytest = "==5.4.1"
+pytest-ordering = "==0.6"
 
 [requires]
 python_version = "3.7"

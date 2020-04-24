@@ -38,6 +38,111 @@ class TMDataset(Dataset):
         self.original_aa_string_list = original_aa_string_list
         self.original_label_string = original_label_string
 
+    @staticmethod
+    def from_disk(dataset, use_gpu):
+        print("Constructing data set from disk...")
+        aa_list = []
+        labels_list = []
+        remapped_labels_list_crf_hmm = []
+        remapped_labels_list_crf_marg = []
+        prot_type_list = []
+        prot_topology_list_all = []
+        prot_aa_list_all = []
+        prot_labels_list_all = []
+        prot_name_list = []
+        # sort according to length of aa sequence
+        dataset.sort(key=lambda x: len(x[1]), reverse=True)
+        for prot_name, prot_aa_list, prot_original_label_list, type_id, _cluster_id in dataset:
+            prot_name_list.append(prot_name)
+            prot_aa_list_all.append(prot_aa_list)
+            prot_labels_list_all.append(prot_original_label_list)
+            aa_tmp_list_tensor = []
+            labels = None
+            remapped_labels_crf_hmm = None
+            last_non_membrane_position = None
+            if prot_original_label_list is not None:
+                labels = []
+                for topology_label in prot_original_label_list:
+                    if topology_label == "L":
+                        topology_label = "I"
+                    if topology_label == "I":
+                        last_non_membrane_position = "I"
+                        labels.append(3)
+                    elif topology_label == "O":
+                        last_non_membrane_position = "O"
+                        labels.append(4)
+                    elif topology_label == "S":
+                        last_non_membrane_position = "S"
+                        labels.append(2)
+                    elif topology_label == "M":
+                        if last_non_membrane_position == "I":
+                            labels.append(0)
+                        elif last_non_membrane_position == "O":
+                            labels.append(1)
+                        else:
+                            print("Error: unexpected label found in last_non_membrane_position:",
+                                  topology_label)
+                    else:
+                        print("Error: unexpected label found:", topology_label, "for protein",
+                              prot_name)
+                labels = torch.LongTensor(labels)
+                remapped_labels_crf_hmm = []
+                topology = label_list_to_topology(labels)
+                # given topology, now calculate remapped labels
+                for idx, (pos, l) in enumerate(topology):
+                    if l == 0:  # I -> O
+                        membrane_length = topology[idx + 1][0] - pos
+                        mm_beginning = 4
+                        for i in range(mm_beginning):
+                            remapped_labels_crf_hmm.append(5 + i)
+                        for i in range(40 - (membrane_length - mm_beginning), 40):
+                            remapped_labels_crf_hmm.append(5 + i)
+                    elif l == 1:  # O -> I
+                        membrane_length = topology[idx + 1][0] - pos
+                        mm_beginning = 4
+                        for i in range(mm_beginning):
+                            remapped_labels_crf_hmm.append(45 + i)
+                        for i in range(40 - (membrane_length - mm_beginning), 40):
+                            remapped_labels_crf_hmm.append(45 + i)
+                    elif l == 2:  # S
+                        signal_length = topology[idx + 1][0] - pos
+                        remapped_labels_crf_hmm.append(2)
+                        for i in range(signal_length - 1):
+                            remapped_labels_crf_hmm.append(152 - ((signal_length - 1) - i))
+                            if remapped_labels_crf_hmm[-1] == 85:
+                                print("Too long signal peptide region found", prot_name)
+                    else:
+                        if idx == (len(topology) - 1):
+                            for i in range(len(labels) - pos):
+                                remapped_labels_crf_hmm.append(l)
+                        else:
+                            for i in range(topology[idx + 1][0] - pos):
+                                remapped_labels_crf_hmm.append(l)
+                remapped_labels_crf_hmm = torch.LongTensor(remapped_labels_crf_hmm)
+
+                remapped_labels_crf_marg = list([l + (type_id * 5) for l in labels])
+                remapped_labels_crf_marg = torch.LongTensor(remapped_labels_crf_marg)
+
+                # check that protein was properly parsed
+                assert remapped_labels_crf_hmm.size() == labels.size()
+                assert remapped_labels_crf_marg.size() == labels.size()
+
+            if use_gpu:
+                if labels is not None:
+                    labels = labels.cuda()
+                remapped_labels_crf_hmm = remapped_labels_crf_hmm.cuda()
+                remapped_labels_crf_marg = remapped_labels_crf_marg.cuda()
+            aa_list.append(aa_tmp_list_tensor)
+            labels_list.append(labels)
+            remapped_labels_list_crf_hmm.append(remapped_labels_crf_hmm)
+            remapped_labels_list_crf_marg.append(remapped_labels_crf_marg)
+            prot_type_list.append(type_id)
+            prot_topology_list_all.append(label_list_to_topology(labels))
+        return TMDataset(aa_list, labels_list, remapped_labels_list_crf_hmm,
+                         remapped_labels_list_crf_marg,
+                         prot_type_list, prot_topology_list_all, prot_name_list,
+                         prot_aa_list_all, prot_labels_list_all)
+
     def __getitem__(self, index):
         return self.aa_list[index], \
                self.label_list[index], \
@@ -66,112 +171,6 @@ def merge_samples_to_minibatch(samples):
     write_out(prot_type_list)
     return aa_list, labels_list, remapped_labels_list_crf_hmm, remapped_labels_list_crf_marg, \
            prot_type_list, prot_topology_list, prot_name, original_aa_string, original_label_string
-
-
-def from_disk(dataset, use_gpu):
-    print("Constructing data set from disk...")
-    aa_list = []
-    labels_list = []
-    remapped_labels_list_crf_hmm = []
-    remapped_labels_list_crf_marg = []
-    prot_type_list = []
-    prot_topology_list_all = []
-    prot_aa_list_all = []
-    prot_labels_list_all = []
-    prot_name_list = []
-    # sort according to length of aa sequence
-    dataset.sort(key=lambda x: len(x[1]), reverse=True)
-    for prot_name, prot_aa_list, prot_original_label_list, type_id, _cluster_id in dataset:
-        prot_name_list.append(prot_name)
-        prot_aa_list_all.append(prot_aa_list)
-        prot_labels_list_all.append(prot_original_label_list)
-        aa_tmp_list_tensor = []
-        labels = None
-        remapped_labels_crf_hmm = None
-        last_non_membrane_position = None
-        if prot_original_label_list is not None:
-            labels = []
-            for topology_label in prot_original_label_list:
-                if topology_label == "L":
-                    topology_label = "I"
-                if topology_label == "I":
-                    last_non_membrane_position = "I"
-                    labels.append(3)
-                elif topology_label == "O":
-                    last_non_membrane_position = "O"
-                    labels.append(4)
-                elif topology_label == "S":
-                    last_non_membrane_position = "S"
-                    labels.append(2)
-                elif topology_label == "M":
-                    if last_non_membrane_position == "I":
-                        labels.append(0)
-                    elif last_non_membrane_position == "O":
-                        labels.append(1)
-                    else:
-                        print("Error: unexpected label found in last_non_membrane_position:",
-                              topology_label)
-                else:
-                    print("Error: unexpected label found:", topology_label, "for protein",
-                          prot_name)
-            labels = torch.LongTensor(labels)
-            remapped_labels_crf_hmm = []
-            topology = label_list_to_topology(labels)
-            # given topology, now calculate remapped labels
-            for idx, (pos, l) in enumerate(topology):
-                if l == 0:  # I -> O
-                    membrane_length = topology[idx + 1][0] - pos
-                    mm_beginning = 4
-                    for i in range(mm_beginning):
-                        remapped_labels_crf_hmm.append(5 + i)
-                    for i in range(40 - (membrane_length - mm_beginning), 40):
-                        remapped_labels_crf_hmm.append(5 + i)
-                elif l == 1:  # O -> I
-                    membrane_length = topology[idx + 1][0] - pos
-                    mm_beginning = 4
-                    for i in range(mm_beginning):
-                        remapped_labels_crf_hmm.append(45 + i)
-                    for i in range(40 - (membrane_length - mm_beginning), 40):
-                        remapped_labels_crf_hmm.append(45 + i)
-                elif l == 2:  # S
-                    signal_length = topology[idx + 1][0] - pos
-                    remapped_labels_crf_hmm.append(2)
-                    for i in range(signal_length - 1):
-                        remapped_labels_crf_hmm.append(152 - ((signal_length - 1) - i))
-                        if remapped_labels_crf_hmm[-1] == 85:
-                            print("Too long signal peptide region found", prot_name)
-                else:
-                    if idx == (len(topology) - 1):
-                        for i in range(len(labels) - pos):
-                            remapped_labels_crf_hmm.append(l)
-                    else:
-                        for i in range(topology[idx + 1][0] - pos):
-                            remapped_labels_crf_hmm.append(l)
-            remapped_labels_crf_hmm = torch.LongTensor(remapped_labels_crf_hmm)
-
-            remapped_labels_crf_marg = list([l + (type_id * 5) for l in labels])
-            remapped_labels_crf_marg = torch.LongTensor(remapped_labels_crf_marg)
-
-            # check that protein was properly parsed
-            assert remapped_labels_crf_hmm.size() == labels.size()
-            assert remapped_labels_crf_marg.size() == labels.size()
-
-        if use_gpu:
-            if labels is not None:
-                labels = labels.cuda()
-            remapped_labels_crf_hmm = remapped_labels_crf_hmm.cuda()
-            remapped_labels_crf_marg = remapped_labels_crf_marg.cuda()
-        aa_list.append(aa_tmp_list_tensor)
-        labels_list.append(labels)
-        remapped_labels_list_crf_hmm.append(remapped_labels_crf_hmm)
-        remapped_labels_list_crf_marg.append(remapped_labels_crf_marg)
-        prot_type_list.append(type_id)
-        prot_topology_list_all.append(label_list_to_topology(labels))
-    return TMDataset(aa_list, labels_list, remapped_labels_list_crf_hmm,
-                     remapped_labels_list_crf_marg,
-                     prot_type_list, prot_topology_list_all, prot_name_list,
-                     prot_aa_list_all, prot_labels_list_all)
-
 
 def tm_contruct_dataloader_from_disk(tm_dataset, minibatch_size, balance_classes=False):
     if balance_classes:
