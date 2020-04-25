@@ -4,6 +4,7 @@ This file is part of the OpenProtein project.
 For license information, please see the LICENSE file in the root directory.
 """
 
+
 import argparse
 import glob
 import os
