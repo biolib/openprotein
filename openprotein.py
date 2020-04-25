@@ -64,19 +64,18 @@ class BaseModel(nn.Module):
         if isinstance(_batch_sizes[0], int):
             _batch_sizes = torch.tensor(_batch_sizes)
         emissions_actual, _ = \
+            calculate_dihedral_angles_over_minibatch(actual_coords_list_padded,
+                                                    _batch_sizes,
+                                                    self.use_gpu)
         drmsd_avg = calc_avg_drmsd_over_minibatch(_backbone_atoms_padded, actual_coords_list_padded, _batch_sizes)
-            #calculate_dihedral_angles_over_minibatch(actual_coords_list_padded,
-            #                                         _batch_sizes,
-            #                                         self.use_gpu)
 
-            
         write_out("Angle calculation time:", time.time() - start)
         if self.use_gpu:
             emissions_actual = emissions_actual.cuda()
             drmsd_avg = drmsd_avg.cuda()
-        #angular_loss = calc_angular_difference(emissions, emissions_actual)
+        angular_loss = calc_angular_difference(emissions, emissions_actual)
 
-        return  drmsd_avg #angular_loss 
+        return  drmsd_avg + angular_loss 
 
     def forward(self, original_aa_string):
         return self._get_network_emissions(original_aa_string)
