@@ -25,3 +25,16 @@ jobs:
       run: |
         export PYTHONPATH=.
         pipenv run python -m pytest -s
+
+    - name: Build docker image
+      run: docker build -t biolib/openprotein .
+
+    - name: Push docker image to Docker Hub if on master branch
+      run: >-
+        if [ ${GITHUB_REF#refs/heads/} = 'master' ]; then
+        echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin &&
+        docker push biolib/openprotein:latest ;
+        fi
+      env:
+        DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        DOCKERHUB_PASS: ${{ secrets.DOCKERHUB_PASS }}
