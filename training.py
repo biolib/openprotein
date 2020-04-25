@@ -14,7 +14,7 @@ from util import set_experiment_id, write_out, write_model_to_disk, write_result
 
 def train_model(data_set_identifier, model, train_loader, validation_loader,
                 learning_rate, minibatch_size=64, eval_interval=50, hide_ui=False,
-                use_gpu=False, minimum_updates=1000):
+                use_gpu=False, minimum_updates=100):
     set_experiment_id(data_set_identifier, learning_rate, minibatch_size)
 
     validation_dataset_size = validation_loader.dataset.__len__()
