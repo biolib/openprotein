@@ -23,13 +23,12 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
   autopoint \
   software-properties-common
 
-RUN apt install python3.7 python3.7-dev -y
-
 RUN python3 -m pip install wheel
 RUN python3 -m pip install pipenv
 
 COPY . /openprotein
 
+ENV PIP_NO_CACHE_DIR=1
 RUN pipenv install
 
 RUN echo "pipenv shell" >> /root/.bashrc
