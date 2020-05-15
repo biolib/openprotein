@@ -26,7 +26,7 @@ def run_experiment(parser, use_gpu):
     parser.add_argument('--learning-rate',
                         dest='learning_rate',
                         type=float,
-                        default=0.001,
+                        default=0.0002,
                         help='Learning rate to use during training.')
     parser.add_argument('--cv-partition',
                         dest='cv_partition',
@@ -121,10 +121,9 @@ def run_experiment(parser, use_gpu):
             test_preprocessed_set if args.evaluate_on_test else validation_preprocessed_set,
             args.minibatch_size_validation)
 
-        # Use smaller minibatch size for topology
         train_loader_topology = \
             tm_contruct_dataloader_from_disk(train_preprocessed_set_topology,
-                                             int(args.minibatch_size / 8))
+                                             args.minibatch_size)
         validation_loader_topology = \
             tm_contruct_dataloader_from_disk(validation_preprocessed_set_topology,
                                              args
@@ -142,19 +141,25 @@ def run_experiment(parser, use_gpu):
                      + "-HS" + str(args.hidden_size) + "-F" + str(args.input_data.split(".")[-2])
                      + "-P" + str(args.profile_path.split("_")[-1]),
                      train_loader_topology, validation_loader_topology)]:
+
                 type_predictor = None
                 if type_predictor_model_path is not None:
                     type_predictor = load_model_from_disk(type_predictor_model_path,
                                                           force_cpu=False)
-
-                model = TMHMM3(
-                    embedding,
-                    args.hidden_size,
-                    use_gpu,
-                    model_mode,
-                    use_marg_prob,
-                    type_predictor,
-                    args.profile_path)
+                    model = load_model_from_disk(type_predictor_model_path,
+                                                 force_cpu=False)
+                    model.type_classifier = type_predictor
+                    model.type_01loss_values = []
+                    model.topology_01loss_values = []
+                else:
+                    model = TMHMM3(
+                        embedding,
+                        args.hidden_size,
+                        use_gpu,
+                        model_mode,
+                        use_marg_prob,
+                        type_predictor,
+                        args.profile_path)
 
                 model_path = train_model(data_set_identifier=experiment_id,
                                          model=model,

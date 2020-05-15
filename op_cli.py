@@ -28,9 +28,9 @@ def main():
     parser.add_argument('--eval-interval', dest='eval_interval', type=int,
                         default=10, help='Evaluate model on validation set every n minibatches.')
     parser.add_argument('--min-updates', dest='minimum_updates', type=int,
-                        default=100, help='Minimum number of minibatch iterations.')
+                        default=2000, help='Minimum number of minibatch iterations.')
     parser.add_argument('--minibatch-size', dest='minibatch_size', type=int,
-                        default=8, help='Size of each minibatch.')
+                        default=16, help='Size of each minibatch.')
     parser.add_argument('--experiment-id', dest='experiment_id', type=str,
                         default="example", help='Which experiment to run.')
     args, _ = parser.parse_known_args()
