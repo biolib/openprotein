@@ -122,7 +122,6 @@ class TMHMM3(openprotein.BaseModel):
         self.type_sp_classier = None
         crf_transitions_mask = torch.ones((num_tags, num_tags)).byte()
 
-        self.label_01loss_values = []
         self.type_01loss_values = []
         self.topology_01loss_values = []
 
