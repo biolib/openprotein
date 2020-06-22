@@ -47,7 +47,7 @@ fi
 
 echo "Running pylint"
 
-find . -type f -name "*.py" | xargs pipenv run pylint --rcfile=.pylintrc
+find . -type f -name "*.py" | grep -v pytorchcrf | xargs pipenv run pylint --rcfile=.pylintrc
 
 if [ $? -eq 0 ]
 then
