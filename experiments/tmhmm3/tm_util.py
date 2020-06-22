@@ -6,11 +6,13 @@ For license information, please see the LICENSE file in the root directory.
 
 import math
 import random
+from typing import List
+
 import torch
 from torch.utils.data.dataset import Dataset
 import numpy as np
 
-
+from pytorchcrf.torchcrf import CRF
 from util import write_out
 
 
@@ -281,29 +283,80 @@ def sample_at_index(rows, offset, sample_num):
     return samples
 
 def label_list_to_topology(labels):
+    if isinstance(labels, np.ndarray):
+        top_list = []
+        last_label = None
+        for idx, label in enumerate(labels):
+            if last_label is None or last_label != label:
+                top_list.append((idx, label))
+            last_label = label
+        return top_list
+
     if isinstance(labels, list):
         labels = torch.LongTensor(labels)
-    unique, count = torch.unique_consecutive(labels, return_counts=True)
-    top_list = [torch.LongTensor((0, int(labels[0])))]
-    prev_count = 0
-    for i in range(1, unique.size(0)):
-        prev_count += int(count[i - 1])
-        top_list.append(torch.LongTensor((prev_count, int(unique[i]))))
-    return top_list
+
+    if isinstance(labels, torch.LongTensor):
+        zero_tensor = torch.LongTensor([0])
+        if labels.is_cuda:
+            zero_tensor = zero_tensor.cuda()
+
+        unique, count = torch.unique_consecutive(labels, return_counts=True)
+        top_list = [torch.cat((zero_tensor, labels[0]))]
+        prev_count = 0
+        i = 0
+        for _ in unique.split(1):
+            if i == 0:
+                i += 1
+                continue
+            prev_count += count[i - 1]
+            top_list.append(torch.cat((prev_count.view(1), unique[i].view(1))))
+            i += 1
+        return top_list
+
 
 
 def remapped_labels_hmm_to_orginal_labels(labels):
-    for idx, value in enumerate(labels):
-        if 5 <= value < 45:
-            labels[idx] = 0
-        if 45 <= value < 85:
-            labels[idx] = 1
-        if value >= 85:
-            labels[idx] = 2
+
+    if isinstance(labels, np.ndarray):
+        zeros = np.zeros(labels.shape, dtype=np.long)
+        ones = np.ones(labels.shape, dtype=np.long)
+        twos = np.ones(labels.shape, dtype=np.long) * 2
+
+
+        labels = np.where((labels >= 5) & (labels < 45), zeros, labels)
+        labels = np.where((labels >= 45) & (labels < 85), ones, labels)
+        labels = np.where(labels >= 85, twos, labels)
+
+        return labels
+
     if isinstance(labels, list):
         labels = torch.LongTensor(labels)
-    return labels
 
+    if isinstance(labels, torch.LongTensor):
+
+        torch_zeros = torch.zeros(labels.size(), dtype=torch.long)
+        torch_ones = torch.ones(labels.size(), dtype=torch.long)
+        torch_twos = torch.ones(labels.size(), dtype=torch.long) * 2
+
+        if labels.is_cuda:
+            labels = labels.cuda()
+            torch_zeros = labels.cuda()
+            torch_ones = labels.cuda()
+            torch_twos = labels.cuda()
+
+        labels = torch.where((labels >= 5) & (labels < 45), torch_zeros, labels)
+        labels = torch.where((labels >= 45) & (labels < 85), torch_ones, labels)
+        labels = torch.where(labels >= 85, torch_twos, labels)
+
+        return labels
+
+def batch_sizes_to_mask(batch_sizes: torch.Tensor) -> torch.Tensor:
+    arange = torch.arange(batch_sizes[0], dtype=torch.int32)
+    if batch_sizes.is_cuda:
+        arange = arange.cuda()
+    res = (arange.expand(batch_sizes.size(0), batch_sizes[0])
+           < batch_sizes.unsqueeze(1)).transpose(0, 1)
+    return res
 
 def original_labels_to_fasta(label_list):
     sequence = ""
@@ -324,17 +377,34 @@ def original_labels_to_fasta(label_list):
 
 
 def get_predicted_type_from_labels(labels):
-    labels = list([int(i) for i in labels])
-    if 0 in labels or 1 in labels:
-        if 2 in labels:
-            return 1
-        else:
-            return 0
-    else:
-        if 2 in labels:
-            return 2
-        else:
-            return 3
+    if isinstance(labels, np.ndarray):
+        zero = np.zeros(1, dtype=np.long)
+
+        contains_0 = (labels == 0).sum() > 0
+        contains_1 = (labels == 1).sum() > 0
+        contains_2 = np.where((labels == 2).sum() > 0, zero + 1, zero)
+
+        is_tm = np.where(contains_0 | contains_1, zero + 1, zero)
+
+        return is_tm * contains_2 \
+               + ((is_tm - 1) * (is_tm - 1)) * (3 - contains_2)
+
+    if isinstance(labels, torch.LongTensor):
+        torch_zero = torch.zeros(1)
+
+        if labels.is_cuda:
+            torch_zero = torch_zero.cuda()
+
+        contains_0 = (labels == 0).int().sum() > 0
+        contains_1 = (labels == 1).int().sum() > 0
+        contains_2 = torch.where((labels == 2).int().sum() > 0, torch_zero + 1, torch_zero)
+
+        is_tm = torch.where(contains_0 | contains_1, torch_zero + 1, torch_zero)
+
+        return is_tm * contains_2 \
+               + ((is_tm - 1) * (is_tm - 1)) * (3 - contains_2)
+
+
 
 
 def is_topologies_equal(topology_a, topology_b, minimum_seqment_overlap=5):
@@ -474,3 +544,191 @@ def normalize_confusion_matrix(confusion_matrix):
             else:
                 confusion_matrix[i][k] = math.nan
     return confusion_matrix.round(2)
+
+def decode(emissions, batch_sizes, start_transitions, transitions, end_transitions):
+    mask = batch_sizes_to_mask(batch_sizes)
+
+    if emissions.is_cuda:
+        mask = mask.cuda()
+    crf_model = CRF(int(start_transitions.size(0)))
+    initialize_crf_parameters(crf_model,
+                              start_transitions=start_transitions,
+                              transitions=transitions,
+                              end_transitions=end_transitions)
+    labels_predicted = []
+    for l in crf_model.decode(emissions, mask=mask):
+        val = torch.tensor(l).unsqueeze(1)
+        if emissions.is_cuda:
+            val = val.cuda()
+        labels_predicted.append(val)
+
+
+    predicted_labels = []
+    for l in labels_predicted:
+        predicted_labels.append(remapped_labels_hmm_to_orginal_labels(l))
+
+    predicted_types_list = []
+    for p_label in predicted_labels:
+        predicted_types_list.append(get_predicted_type_from_labels(p_label))
+    predicted_types = torch.cat(predicted_types_list)
+
+
+
+    if emissions.is_cuda:
+        predicted_types = predicted_types.cuda()
+
+    # if all O's, change to all I's (by convention)
+    torch_zero = torch.zeros(1, dtype=torch.long)
+    if emissions.is_cuda:
+        torch_zero = torch_zero.cuda()
+    for idx, labels in enumerate(predicted_labels):
+        predicted_labels[idx] = \
+            labels - torch.where(torch.eq(labels, 4).min() == 1, torch_zero + 1, torch_zero)
+
+    return predicted_labels, predicted_types, list(map(label_list_to_topology, predicted_labels))
+
+
+def decode_numpy(emissions, batch_sizes, start_transitions, transitions, end_transitions):
+    labels_predicted = []
+    for l in numpy_viterbi_decode(emissions,
+                                  batch_sizes=batch_sizes,
+                                  start_transitions=start_transitions,
+                                  transitions=transitions,
+                                  end_transitions=end_transitions):
+        val = np.expand_dims(np.array(l), 1)
+        labels_predicted.append(val)
+
+
+    predicted_labels = []
+    for l in labels_predicted:
+        predicted_labels.append(remapped_labels_hmm_to_orginal_labels(l))
+
+    predicted_types_list = []
+    for p_label in predicted_labels:
+        predicted_types_list.append(get_predicted_type_from_labels(p_label))
+    predicted_types = np.array(predicted_types_list).squeeze(axis=1)
+
+    # if all O's, change to all I's (by convention)
+    zero = np.zeros(1, dtype=np.long)
+
+    for idx, labels in enumerate(predicted_labels):
+        predicted_labels[idx] = \
+            labels - np.where((labels == 4).min() == 1, zero + 1, zero)
+
+    return predicted_labels, \
+           predicted_types, \
+           list(map(label_list_to_topology, predicted_labels))
+
+def numpy_viterbi_decode(emissions,
+                         batch_sizes,
+                         start_transitions,
+                         transitions,
+                         end_transitions) -> List[List[int]]:
+    # emissions: (seq_length, batch_size, num_tags)
+    # mask: (seq_length, batch_size)
+    assert len(emissions.shape) == 3
+    #assert emissions.shape[:2] == mask.shape
+    #assert emissions.size(2) == self.num_tags
+    #assert mask[0].all()
+
+    seq_length = emissions.shape[0]
+    batch_size = emissions.shape[1]
+
+    # Start transition and first emission
+    # shape: (batch_size, num_tags)
+    score = start_transitions + emissions[0]
+    history = []
+
+    # score is a tensor of size (batch_size, num_tags) where for every batch,
+    # value at column j stores the score of the best tag sequence so far that ends
+    # with tag j
+    # history saves where the best tags candidate transitioned from; this is used
+    # when we trace back the best tag sequence
+
+    # Viterbi algorithm recursive case: we compute the score of the best tag sequence
+    # for every possible next tag
+
+    l = []
+    for i in batch_sizes:
+        l.append(np.array([1] * i + [0] * (seq_length - i)))
+    mask = np.array(l).T
+
+
+    for i in range(1, seq_length):
+
+        # Broadcast viterbi score for every possible next tag
+        # shape: (batch_size, num_tags, 1)
+        broadcast_score = np.expand_dims(score, 2)
+
+        # Broadcast emission score for every possible current tag
+        # shape: (batch_size, 1, num_tags)
+        broadcast_emission = np.expand_dims(emissions[i], 1)
+
+        # Compute the score tensor of size (batch_size, num_tags, num_tags) where
+        # for each sample, entry at row i and column j stores the score of the best
+        # tag sequence so far that ends with transitioning from tag i to tag j and emitting
+        # shape: (batch_size, num_tags, num_tags)
+        next_score = broadcast_score + transitions + broadcast_emission
+
+        # Find the maximum score over all possible current tag
+        # shape: (batch_size, num_tags)
+        indices = next_score.argmax(axis=1)
+        next_score = next_score.max(axis=1)
+
+
+        # Set score to the next score if this timestep is valid (mask == 1)
+        # and save the index that produces the next score
+        # shape: (batch_size, num_tags)
+        score = np.where(np.expand_dims(mask[i], 1), next_score, score) # pylint: disable=E1136
+        history.append(indices)
+
+
+    # End transition score
+    # shape: (batch_size, num_tags)
+    score += end_transitions
+
+    # Now, compute the best path for each sample
+
+    # shape: (batch_size,)
+    seq_ends = batch_sizes - 1
+    best_tags_list = []
+
+    for idx in range(batch_size):
+        # Find the tag which maximizes the score at the last timestep; this is our best tag
+        # for the last timestep
+        best_last_tag = score[idx].argmax(axis=0)
+        best_tags = [best_last_tag.item()]
+
+        # We trace back where the best last tag comes from, append that to our best tag
+        # sequence, and trace it back again, and so on
+        for hist in reversed(history[:seq_ends[idx]]):
+            best_last_tag = hist[idx][best_tags[-1]]
+            best_tags.append(best_last_tag.item())
+
+        # Reverse the order because we start from the last timestep
+        best_tags.reverse()
+        best_tags_list.append(best_tags)
+
+    return best_tags_list
+
+def initialize_crf_parameters(crf_model,
+                              start_transitions=None,
+                              end_transitions=None,
+                              transitions=None) -> None:
+    """Initialize the transition parameters.
+
+    The parameters will be initialized randomly from a uniform distribution
+    between -0.1 and 0.1, unless given explicitly as an argument.
+    """
+    if start_transitions is None:
+        torch.nn.init.uniform(crf_model.start_transitions, -0.1, 0.1)
+    else:
+        crf_model.start_transitions.data = start_transitions
+    if end_transitions is None:
+        torch.nn.init.uniform(crf_model.end_transitions, -0.1, 0.1)
+    else:
+        crf_model.end_transitions.data = end_transitions
+    if transitions is None:
+        torch.nn.init.uniform(crf_model.transitions, -0.1, 0.1)
+    else:
+        crf_model.transitions.data = transitions

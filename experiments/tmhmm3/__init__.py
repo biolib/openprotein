@@ -33,11 +33,6 @@ def run_experiment(parser, use_gpu):
                         type=int,
                         default=0,
                         help='Run a particular cross validation rotation.')
-    parser.add_argument('--model-mode',
-                        dest='model_mode',
-                        type=int,
-                        default=2,
-                        help='Which model to use.')
     parser.add_argument('--input-data',
                         dest='input_data',
                         type=str,
@@ -54,19 +49,6 @@ def run_experiment(parser, use_gpu):
     args, _unknown = parser.parse_known_args()
 
     result_matrices = np.zeros((5, 5), dtype=np.int64)
-
-    if args.model_mode == 0:
-        model_mode = TMHMM3Mode.LSTM
-    elif args.model_mode == 1:
-        model_mode = TMHMM3Mode.LSTM_CRF
-    elif args.model_mode == 2:
-        model_mode = TMHMM3Mode.LSTM_CRF_HMM
-    elif args.model_mode == 3:
-        model_mode = TMHMM3Mode.LSTM_CRF_MARG
-    else:
-        print("ERROR: No model defined")
-
-    print("Using model:", model_mode)
 
     if args.profile_path != "":
         embedding = "PROFILE"
@@ -133,11 +115,11 @@ def run_experiment(parser, use_gpu):
 
         if args.pre_trained_model_paths is None:
             for (experiment_id, train_data, validation_data) in [
-                    ("TRAIN_TYPE_CV" + str(cv_partition) + "-" + str(model_mode)
+                    ("TRAIN_TYPE_CV" + str(cv_partition)
                      + "-HS" + str(args.hidden_size) + "-F" + str(args.input_data.split(".")[-2])
                      + "-P" + str(args.profile_path.split("_")[-1]), train_loader,
                      validation_loader),
-                    ("TRAIN_TOPOLOGY_CV" + str(cv_partition) + "-" + str(model_mode)
+                    ("TRAIN_TOPOLOGY_CV" + str(cv_partition)
                      + "-HS" + str(args.hidden_size) + "-F" + str(args.input_data.split(".")[-2])
                      + "-P" + str(args.profile_path.split("_")[-1]),
                      train_loader_topology, validation_loader_topology)]:
@@ -156,7 +138,6 @@ def run_experiment(parser, use_gpu):
                         embedding,
                         args.hidden_size,
                         use_gpu,
-                        model_mode,
                         use_marg_prob,
                         type_predictor,
                         args.profile_path)
@@ -195,7 +176,7 @@ def run_experiment(parser, use_gpu):
         write_out(result_matrix)
 
     set_experiment_id(
-        "TEST-" + str(model_mode) + "-HS" + str(args.hidden_size) + "-F"
+        "TEST-" + "-HS" + str(args.hidden_size) + "-F"
         + str(args.input_data.split(".")[-2]),
         args.learning_rate,
         args.minibatch_size)

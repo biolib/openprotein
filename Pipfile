@@ -14,7 +14,7 @@ h5py = "==2.10.0"
 peptidebuilder = "==1.0.4"
 biopython = "==1.68"
 requests = "==2.22.0"
-pylint = "==2.4.4"
+pylint = "==2.5.2"
 pytest = "==5.4.1"
 pytest-ordering = "==0.6"
 
