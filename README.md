@@ -42,4 +42,4 @@ OpenProtein includes a preprocessing tool (`preprocessing.py`) which will transf
 The OpenProtein PyTorch data loader is memory optimized too - when reading the hdf5 file it will only load the samples needed for each minibatch into memory.
 
 ## License
-Please see the LICENSE file in the root directory.
+MIT License
